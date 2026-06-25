@@ -1,5 +1,52 @@
 # See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
 
+# ===========================================
+# SENSITIVE INFORMATION & SECRETS
+# ===========================================
+# Never commit real API keys, tokens, or credentials.
+# This project stores the OpenRouter API key only in browser localStorage (via Zustand).
+# Protect any .env or secret files.
+
+# Environment variables (all variants)
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+.env.test
+
+# Allow example/template files (safe to commit)
+!.env.example
+!.env*.example
+
+# API keys, tokens, and credentials (common patterns)
+*api-key*
+*apikey*
+*openrouter*
+*secret*
+*token*
+*password*
+credentials.json
+auth.json
+
+# Private keys and certificates
+*.pem
+*.key
+*.crt
+id_rsa*
+id_dsa*
+*.p12
+*.pfx
+
+# Secret directories
+secrets/
+config/secrets/
+private/
+
+# ===========================================
+# STANDARD NEXT.JS + PROJECT IGNORES
+# ===========================================
+
 # dependencies
 /node_modules
 /.pnp
@@ -30,12 +77,29 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
-.env*
-
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# ===========================================
+# ADDITIONAL SECURITY / DEV IGNORES
+# ===========================================
+
+# IDE and editor settings (may contain personal paths or secrets)
+.idea/
+.vscode/
+*.sublime-project
+*.sublime-workspace
+
+# OS generated files
+Thumbs.db
+ehthumbs.db
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+.cache/

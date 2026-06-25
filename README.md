@@ -36,6 +36,20 @@ npm run dev
 
 Open http://localhost:3000
 
+### Environment Setup
+
+1. Copy the example environment file:
+   ```bash
+   cp .env.example .env.local
+   ```
+
+2. Edit `.env.local` and add your OpenRouter API key:
+   ```env
+   OPENROUTER_API_KEY=sk-or-...
+   ```
+
+> **Note:** The app primarily uses the API key entered in **Settings** (stored in your browser). The `.env.local` file is provided for future use, deployment scripts, or if you want to pre-fill the key.
+
 ### Using AI Features (required for vision & prioritize)
 
 1. Get a free OpenRouter API key: https://openrouter.ai/keys
@@ -117,3 +131,7 @@ Because **PinBoard is a fully local PWA** with no backend server, we must call O
 If you want zero browser direct calls, you would need to run a small local proxy server (outside this app) and point the code at it. This is **not** required for normal personal use.
 
 Enjoy the app safely!
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
