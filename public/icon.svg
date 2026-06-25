@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <defs>
+    <linearGradient id="cork" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#c5a16e"/>
+      <stop offset="100%" stop-color="#a37d4f"/>
+    </linearGradient>
+  </defs>
+  <!-- Cork board background -->
+  <rect width="512" height="512" rx="60" fill="url(#cork)"/>
+  <!-- Subtle grain -->
+  <rect width="512" height="512" rx="60" fill="none" stroke="#8c663f" stroke-opacity="0.2" stroke-width="40"/>
+  <!-- Yellow post-it -->
+  <rect x="80" y="90" width="180" height="160" rx="6" fill="#f7e8a0" stroke="#d4b35e" stroke-width="6"/>
+  <!-- Pink post-it -->
+  <rect x="260" y="130" width="160" height="150" rx="6" fill="#f7c8c1" stroke="#d38c82" stroke-width="6"/>
+  <!-- Teal post-it -->
+  <rect x="150" y="260" width="170" height="140" rx="6" fill="#9ed2d0" stroke="#5f9e9a" stroke-width="6"/>
+  <!-- Simple pin -->
+  <circle cx="260" cy="95" r="13" fill="#334155"/>
+  <circle cx="260" cy="95" r="4" fill="#64748b"/>
+</svg>
