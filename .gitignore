@@ -103,3 +103,5 @@ ehthumbs.db
 *.tmp
 *.temp
 .cache/
+
+.vercel

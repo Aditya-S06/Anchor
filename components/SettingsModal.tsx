@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Settings } from '../lib/types';
 import { RECOMMENDED_MODELS } from '../lib/ai';
@@ -25,6 +25,24 @@ export default function SettingsModal({
 }: SettingsModalProps) {
   const [keyInput, setKeyInput] = useState(settings.openRouterApiKey);
   const [modelInput, setModelInput] = useState(settings.aiModel);
+
+  useEffect(() => {
+    if (isOpen) {
+      const originalOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      return () => {
+        document.body.style.overflow = originalOverflow;
+      };
+    }
+  }, [isOpen]);
+
+  // Sync local state when modal opens or settings change externally
+  useEffect(() => {
+    if (isOpen) {
+      setKeyInput(settings.openRouterApiKey);
+      setModelInput(settings.aiModel);
+    }
+  }, [isOpen, settings.openRouterApiKey, settings.aiModel]);
 
   if (!isOpen) return null;
 
@@ -52,13 +70,16 @@ export default function SettingsModal({
 
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4" onClick={onClose}>
-      <div className="modal w-full max-w-md bg-[#f8f1e3] rounded-2xl border border-[#d9c9a8] shadow-xl" onClick={e => e.stopPropagation()}>
-        <div className="px-6 py-4 flex justify-between border-b">
+      <div 
+        className="modal w-full max-w-md max-h-[90vh] flex flex-col bg-[#f8f1e3] rounded-2xl border border-[#d9c9a8] shadow-xl overflow-hidden" 
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="px-6 py-4 flex justify-between border-b flex-shrink-0">
           <div className="font-semibold">Settings</div>
           <button onClick={onClose}><X size={19} /></button>
         </div>
 
-        <div className="p-6 space-y-7 text-sm">
+        <div className="p-6 space-y-7 text-sm overflow-y-auto flex-1">
           {/* Security Warning */}
           <div className="bg-amber-100 border border-amber-300 rounded-xl p-3 text-xs text-amber-900">
             <div className="font-semibold mb-1">⚠️ Security Notice (Browser App)</div>
