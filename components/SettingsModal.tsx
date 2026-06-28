@@ -169,6 +169,22 @@ export default function SettingsModal({
             <div className="flex flex-wrap gap-2">
               <button onClick={onExport} className="btn btn-ghost text-xs px-4">Export JSON</button>
               <button onClick={handleClear} className="btn text-xs px-4 bg-red-600 text-white hover:bg-red-700">Clear All Data</button>
+              <button 
+                onClick={() => {
+                  if ('serviceWorker' in navigator) {
+                    navigator.serviceWorker.getRegistration().then((reg) => {
+                      if (reg) {
+                        reg.update().then(() => toast.success('Checking for updates...'));
+                      } else {
+                        toast.info('No service worker found');
+                      }
+                    });
+                  }
+                }} 
+                className="btn btn-ghost text-xs px-4"
+              >
+                Check for updates
+              </button>
             </div>
             <div className="text-[10px] text-[#6d5944] mt-2">All data lives in your browser (localStorage). Export regularly if you want a backup.</div>
           </div>

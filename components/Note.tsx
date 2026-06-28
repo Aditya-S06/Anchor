@@ -1,10 +1,10 @@
 'use client';
 
-import React from 'react';
+import React, { useState, useEffect, useRef, memo } from 'react';
 import { motion } from 'framer-motion';
 import { Check, Edit2, Trash2, Pin } from 'lucide-react';
 import { Note as NoteType } from '../lib/types';
-import { formatDueDate, getDueUrgency, getUrgencyClasses, getNoteTypeColor, getTypeBadgeClasses } from '../lib/utils';
+import { formatDueDate, getDueUrgency, getUrgencyClasses, getNoteTypeColor, getTypeBadgeClasses, clampPosition } from '../lib/utils';
 
 interface NoteProps {
   note: NoteType;
@@ -15,7 +15,7 @@ interface NoteProps {
   onToggleComplete: (id: string) => void;
 }
 
-export default function Note({
+function Note({
   note,
   isHighlighted,
   onUpdatePosition,
@@ -27,10 +27,34 @@ export default function Note({
   const urgency = getDueUrgency(note.dueDate);
   const urgencyClasses = getUrgencyClasses(urgency);
 
+  // Local position state for smooth drag without global updates during drag
+  const [localPos, setLocalPos] = useState(note.position);
+  const isDraggingRef = useRef(false);
+
+  // Sync local pos from global only when not dragging (prevents teleport/jank)
+  useEffect(() => {
+    if (!isDraggingRef.current) {
+      setLocalPos(note.position);
+    }
+  }, [note.position.x, note.position.y]);
+
   const handleDragEnd = (_event: any, info: any) => {
-    const newX = note.position.x + info.offset.x;
-    const newY = note.position.y + info.offset.y;
-    onUpdatePosition(note.id, { x: newX, y: newY });
+    isDraggingRef.current = false;
+
+    const newX = localPos.x + info.offset.x;
+    const newY = localPos.y + info.offset.y;
+
+    const newPos = clampPosition({ x: newX, y: newY });
+
+    // Update local immediately for visual consistency
+    setLocalPos(newPos);
+
+    // Update global store ONLY once at end
+    onUpdatePosition(note.id, newPos);
+  };
+
+  const handleDragStart = () => {
+    isDraggingRef.current = true;
   };
 
   const isPermanent = note.type === 'permanent';
@@ -39,17 +63,21 @@ export default function Note({
     <motion.div
       className={`note note-${note.type === 'general' ? 'yellow' : note.type === 'assignment' ? 'pink' : 'teal'} ${isPermanent ? 'note--permanent' : ''} ${note.completed ? 'note-completed' : ''} ${isHighlighted ? 'highlight-pulse ring-2 ring-yellow-400' : ''}`}
       style={{
-        left: note.position.x,
-        top: note.position.y,
-        transform: `rotate(${note.rotation ?? 0}deg)`,
+        position: 'absolute',
+        left: 0,
+        top: 0,
+        x: localPos.x,
+        y: localPos.y,
+        rotate: note.rotation ?? 0,
         backgroundColor: color,
       }}
       drag
-      dragMomentum={true}
-      dragElastic={0.12}
+      dragMomentum={false}
+      dragElastic={0}
+      onDragStart={handleDragStart}
       onDragEnd={handleDragEnd}
       whileDrag={{ scale: 1.02, zIndex: 60 }}
-      transition={{ type: 'spring', bounce: 0.2, duration: 0.3 }}
+      transition={{ type: 'spring', stiffness: 350, damping: 25, mass: 0.8 }}
       onDoubleClick={() => onEdit(note)}
       aria-label={`Note: ${note.title}`}
     >
@@ -116,3 +144,26 @@ export default function Note({
     </motion.div>
   );
 }
+
+// Memoize to prevent re-renders of non-dragged notes when global state updates
+const areEqual = (prev: NoteProps, next: NoteProps) => {
+  const p = prev.note;
+  const n = next.note;
+  // Compare only data that affects rendering. Ignore callback props (new refs each render)
+  return (
+    p.id === n.id &&
+    p.position.x === n.position.x &&
+    p.position.y === n.position.y &&
+    p.rotation === n.rotation &&
+    p.completed === n.completed &&
+    p.title === n.title &&
+    p.content === n.content &&
+    p.dueDate === n.dueDate &&
+    p.type === n.type &&
+    p.color === n.color &&
+    p.source === n.source &&
+    prev.isHighlighted === next.isHighlighted
+  );
+};
+
+export default memo(Note, areEqual);

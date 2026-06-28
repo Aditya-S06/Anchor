@@ -79,10 +79,38 @@ export default function PinBoard() {
     checkMobile();
     window.addEventListener('resize', checkMobile);
 
-    // Register service worker
+    // Register service worker + handle updates for installed PWA
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
       navigator.serviceWorker
         .register('/sw.js')
+        .then((registration) => {
+          // Check for updates when page loads or gains focus (useful for desktop PWA)
+          registration.update();
+
+          window.addEventListener('focus', () => {
+            registration.update();
+          });
+
+          // Listen for new service worker
+          registration.onupdatefound = () => {
+            const newWorker = registration.installing;
+            if (newWorker) {
+              newWorker.onstatechange = () => {
+                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
+                  // New version is ready
+                  toast("New version available", {
+                    description: "Update downloaded. Reload to apply.",
+                    action: {
+                      label: "Reload now",
+                      onClick: () => window.location.reload(),
+                    },
+                    duration: 20000,
+                  });
+                }
+              };
+            }
+          };
+        })
         .catch(() => {});
     }
 

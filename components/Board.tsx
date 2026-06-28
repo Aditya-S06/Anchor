@@ -27,6 +27,7 @@ export default function Board({
   return (
     <div
       ref={boardRef}
+      id="board-container"
       className="board-container relative flex-shrink-0 rounded-xl border border-[#a37d4f]/40 shadow-inner"
       style={{
         width: `${BOARD_WIDTH}px`,
