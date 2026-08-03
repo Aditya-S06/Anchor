@@ -266,6 +266,51 @@ export function formatTimeDisplay(start?: string, end?: string): string {
   return end || '';
 }
 
+/** Parse "HH:mm" or "HH:mm:ss" into minutes from midnight. Returns null if invalid. */
+export function minutesFromTime(time?: string | null): number | null {
+  if (!time || typeof time !== 'string') return null;
+  const m = time.trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return null;
+  const h = Number(m[1]);
+  const min = Number(m[2]);
+  if (Number.isNaN(h) || Number.isNaN(min) || h < 0 || h > 24 || min < 0 || min > 59) return null;
+  return Math.min(h * 60 + min, 24 * 60);
+}
+
+/** Minutes from midnight → "HH:mm" (24h). Clamps 0..1440. */
+export function timeFromMinutes(total: number): string {
+  const clamped = Math.max(0, Math.min(24 * 60, Math.round(total)));
+  const h = Math.floor(clamped / 60) % 24;
+  // Represent end-of-day 24:00 as 23:59 for <input type="time"> compatibility when needed
+  if (clamped >= 24 * 60) return '23:59';
+  const m = clamped % 60;
+  return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+/** Friendly 12h label e.g. 6 AM, 3:30 PM, 12 AM */
+export function formatHourLabel(minutes: number): string {
+  if (minutes >= 24 * 60) return '12 AM';
+  const h24 = Math.floor(minutes / 60) % 24;
+  const m = minutes % 60;
+  const period = h24 >= 12 ? 'PM' : 'AM';
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  if (m === 0) return `${h12} ${period}`;
+  return `${h12}:${String(m).padStart(2, '0')} ${period}`;
+}
+
+/** Local calendar date as YYYY-MM-DD (avoids UTC shift from toISOString). */
+export function toLocalDateKey(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function parseLocalDateKey(key: string): Date {
+  const [y, m, d] = key.split('-').map(Number);
+  return new Date(y, (m || 1) - 1, d || 1);
+}
+
 // Group notes that have dueDate by YYYY-MM-DD key
 export function groupNotesByDate(notes: Note[]): Record<string, Note[]> {
   const groups: Record<string, Note[]> = {};

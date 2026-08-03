@@ -2,11 +2,12 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { Note, NoteType, Settings, DEFAULT_SETTINGS } from './types';
 import { generateId, getInitialPosition, getRandomRotation, clampPosition, filterNotes } from './utils';
+import { normalizeAiModel } from './ai';
 
 interface UIState {
   searchQuery: string;
   activeFilter: 'all' | NoteType;
-  viewMode: 'board' | 'list' | 'calendar';
+  viewMode: 'board' | 'list' | 'calendar' | 'day';
   selectedNoteId: string | null;
   highlightNoteId: string | null;
   upcomingCollapsed: boolean;
@@ -28,7 +29,7 @@ interface PinboardState {
   // UI
   setSearchQuery: (query: string) => void;
   setActiveFilter: (filter: 'all' | NoteType) => void;
-  setViewMode: (mode: 'board' | 'list' | 'calendar') => void;
+  setViewMode: (mode: 'board' | 'list' | 'calendar' | 'day') => void;
   setSelectedNoteId: (id: string | null) => void;
   setHighlightNoteId: (id: string | null) => void;
   clearHighlight: () => void;
@@ -81,6 +82,11 @@ export const usePinboardStore = create<PinboardState>()(
           createdAt: now,
           source: partialNote.source,
           tags: partialNote.tags || [],
+          category: partialNote.category,
+          startTime: partialNote.startTime,
+          endTime: partialNote.endTime,
+          location: partialNote.location,
+          instructor: partialNote.instructor,
         };
 
         set((state) => ({
@@ -174,9 +180,13 @@ export const usePinboardStore = create<PinboardState>()(
         })),
 
       updateSettings: (updates) =>
-        set((state) => ({
-          settings: { ...state.settings, ...updates },
-        })),
+        set((state) => {
+          const next = { ...state.settings, ...updates };
+          if (updates.aiModel !== undefined) {
+            next.aiModel = normalizeAiModel(updates.aiModel);
+          }
+          return { settings: next };
+        }),
 
       clearAllData: () =>
         set({
@@ -206,9 +216,14 @@ export const usePinboardStore = create<PinboardState>()(
         try {
           const parsed = JSON.parse(json);
           if (Array.isArray(parsed.notes)) {
+            const importedSettings: Settings = {
+              ...DEFAULT_SETTINGS,
+              ...(parsed.settings || {}),
+            };
+            importedSettings.aiModel = normalizeAiModel(importedSettings.aiModel);
             set({
               notes: parsed.notes,
-              settings: parsed.settings || DEFAULT_SETTINGS,
+              settings: importedSettings,
             });
             return true;
           }
@@ -227,6 +242,23 @@ export const usePinboardStore = create<PinboardState>()(
         notes: state.notes,
         settings: state.settings,
       }),
+      // Heal retired/typo model IDs from older versions without clearing user data.
+      merge: (persisted, current) => {
+        const p = (persisted || {}) as Partial<PinboardState>;
+        const mergedSettings: Settings = {
+          ...DEFAULT_SETTINGS,
+          ...current.settings,
+          ...(p.settings || {}),
+        };
+        mergedSettings.aiModel = normalizeAiModel(mergedSettings.aiModel);
+        // Only apply explicit persisted fields — never spread `p` over actions.
+        return {
+          ...current,
+          settings: mergedSettings,
+          notes: Array.isArray(p.notes) ? p.notes : current.notes,
+          ui: current.ui,
+        };
+      },
     }
   )
 );

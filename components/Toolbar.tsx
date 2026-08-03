@@ -13,8 +13,8 @@ interface ToolbarProps {
   onUpload: () => void;
   onPrioritize: () => void;
   onOpenSettings: () => void;
-  viewMode: 'board' | 'list' | 'calendar';
-  onViewModeChange: (m: 'board' | 'list' | 'calendar') => void;
+  viewMode: 'board' | 'list' | 'calendar' | 'day';
+  onViewModeChange: (m: 'board' | 'list' | 'calendar' | 'day') => void;
 }
 
 const FILTERS: Array<'all' | NoteType> = ['all', 'general', 'assignment', 'permanent'];
@@ -66,7 +66,7 @@ export default function Toolbar({
       </div>
 
       <div className="flex items-center gap-2 md:ml-auto flex-wrap">
-        {/* View tabs: Board | List | Calendar */}
+        {/* View tabs: Board | List | Calendar | Day */}
         <div className="flex bg-white rounded-lg border border-[#d9c9a8] text-xs overflow-hidden">
           <button
             onClick={() => onViewModeChange('board')}
@@ -85,6 +85,12 @@ export default function Toolbar({
             className={`px-3 py-1.5 transition-colors ${viewMode === 'calendar' ? 'bg-[#3f2a1f] text-white' : 'hover:bg-[#f4ebdc]'}`}
           >
             Calendar
+          </button>
+          <button
+            onClick={() => onViewModeChange('day')}
+            className={`px-3 py-1.5 transition-colors ${viewMode === 'day' ? 'bg-[#3f2a1f] text-white' : 'hover:bg-[#f4ebdc]'}`}
+          >
+            Day
           </button>
         </div>
 

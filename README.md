@@ -23,7 +23,7 @@ A beautiful, tactile digital corkboard built with Next.js. Drag colorful Post-it
 - Framer Motion (drag + animations)
 - Zustand (persisted)
 - date-fns
-- OpenRouter (OpenAI-compatible) + Qwen2.5-VL vision models
+- OpenRouter (OpenAI-compatible) + free/paid vision models (Nemotron VL, Gemma 4, Qwen VL)
 - PWA via manifest + service worker
 
 ## Getting Started
@@ -55,23 +55,31 @@ Open http://localhost:3000
 1. Get a free OpenRouter API key: https://openrouter.ai/keys
 2. Open **Settings** (gear icon)
 3. Paste your key
-4. Choose a vision model (defaults to `qwen/qwen-2.5-vl-7b-instruct:free`)
+4. Choose a vision model (defaults to `nvidia/nemotron-nano-12b-v2-vl:free`)
 5. Use "Upload Schedule Photo" or "AI Prioritize Today"
 
-**Recommended models**:
-- `qwen/qwen-2.5-vl-7b-instruct:free` (default)
-- Try `nvidia/nemotron-nano-12b-v2-vl:free` as alternative free vision model
-- Or non-free variants if you have credits
+**Recommended free vision models** (verified on OpenRouter):
+- `nvidia/nemotron-nano-12b-v2-vl:free` (**default** — strong for documents/schedules)
+- `google/gemma-4-26b-a4b-it:free`
+- `google/gemma-4-31b-it:free`
+- `nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free`
 
-**Common error: "404 No endpoints found"**
-This is **extremely common** with `:free` models.
+**Cheap paid vision alternatives**:
+- `qwen/qwen3.7-flash`
+- `qwen/qwen3-vl-8b-instruct`
+- `qwen/qwen2.5-vl-72b-instruct`
 
-**Fix**:
-1. Go to https://openrouter.ai/settings/privacy
-2. Enable data usage options (allow models to train on your data, or disable "restrict free models").
-3. Or change the model in Settings to one without `:free`.
+> **Note:** Older free Qwen VL IDs such as `qwen/qwen-2.5-vl-7b-instruct:free` and
+> `qwen/qwen-2.5-vl-32b-instruct:free` were **retired / invalid** on OpenRouter.
+> PinBoard auto-migrates those stored settings to the current free default.
 
-The app now shows a helpful message when this happens.
+**Common free-model issues**
+
+1. **"not a valid model ID"** — pick a recommended model in Settings (or let auto-migration reset it).
+2. **"404 No endpoints found"** — go to https://openrouter.ai/settings/privacy and enable data usage for free models.
+3. **429 rate limit** — wait 20–60s, or switch free models.
+
+The app shows actionable error text and can fall back once to the free default model.
 
 ## PWA / Install
 
@@ -107,7 +115,7 @@ Because **PinBoard is a fully local PWA** with no backend server, we must call O
    - Clearing browser data or using private mode will remove the key
 
 3. **When testing**
-   - Start with the free `qwen/qwen-2.5-vl-7b-instruct:free` model
+   - Start with the free `nvidia/nemotron-nano-12b-v2-vl:free` model
    - Upload a clear photo of a schedule/syllabus
    - Check the **Review modal** before confirming — you can always edit AI suggestions
 

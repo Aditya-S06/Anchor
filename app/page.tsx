@@ -21,6 +21,7 @@ import UploadModal from '../components/UploadModal';
 import AIPlanModal from '../components/AIPlanModal';
 import SettingsModal from '../components/SettingsModal';
 import CalendarView from '../components/CalendarView';
+import DayView from '../components/DayView';
 import EventModal from '../components/EventModal';
 import { toast } from 'sonner';
 
@@ -65,12 +66,15 @@ export default function PinBoard() {
 
   const [isMobile, setIsMobile] = useState(false);
 
-  // Calendar state
+  // Calendar / Day state
   const [calendarDate, setCalendarDate] = useState(new Date());
+  const [dayDate, setDayDate] = useState(new Date());
 
-  // Rich Event Modal (for Calendar create/edit)
+  // Rich Event Modal (for Calendar / Day create/edit)
   const [eventModalOpen, setEventModalOpen] = useState(false);
   const [eventInitialDate, setEventInitialDate] = useState<string | undefined>(undefined);
+  const [eventInitialStart, setEventInitialStart] = useState<string | undefined>(undefined);
+  const [eventInitialEnd, setEventInitialEnd] = useState<string | undefined>(undefined);
   const [editingEvent, setEditingEvent] = useState<Note | null>(null);
 
   // Responsive + SW registration + seed demo data on first run
@@ -275,8 +279,12 @@ export default function PinBoard() {
 
   // Calendar day clicked → open quick create event modal
   const handleDayClick = (date: Date) => {
-    const dateStr = date.toISOString().slice(0, 10);
-    setEventInitialDate(dateStr);
+    const y = date.getFullYear();
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const d = String(date.getDate()).padStart(2, '0');
+    setEventInitialDate(`${y}-${m}-${d}`);
+    setEventInitialStart(undefined);
+    setEventInitialEnd(undefined);
     setEditingEvent(null);
     setEventModalOpen(true);
   };
@@ -284,6 +292,17 @@ export default function PinBoard() {
   const handleEventClickFromCalendar = (note: Note) => {
     setEditingEvent(note);
     setEventInitialDate(undefined);
+    setEventInitialStart(undefined);
+    setEventInitialEnd(undefined);
+    setEventModalOpen(true);
+  };
+
+  // Day view drag-create → open event modal with times prefilled
+  const handleDayCreateRange = (range: { date: string; startTime: string; endTime: string }) => {
+    setEditingEvent(null);
+    setEventInitialDate(range.date);
+    setEventInitialStart(range.startTime);
+    setEventInitialEnd(range.endTime);
     setEventModalOpen(true);
   };
 
@@ -387,6 +406,9 @@ export default function PinBoard() {
       setPlanError(result.error);
     } else {
       setPlanText(result.plan);
+      if (result.usedFallbackModel) {
+        toast.message(`Primary model unavailable — used ${result.usedFallbackModel}`);
+      }
     }
   };
 
@@ -502,7 +524,7 @@ export default function PinBoard() {
             </button>
           </div>
 
-          {/* Content: Board | List | Calendar */}
+          {/* Content: Board | List | Calendar | Day */}
           <div className="flex-1 overflow-auto bg-[#ede3d1]">
             {ui.viewMode === 'calendar' ? (
               <CalendarView
@@ -512,6 +534,14 @@ export default function PinBoard() {
                 onDayClick={handleDayClick}
                 onEventClick={handleEventClickFromCalendar}
                 onAIImport={handleAIImportFromCalendar}
+              />
+            ) : ui.viewMode === 'day' ? (
+              <DayView
+                notes={notes}
+                currentDate={dayDate}
+                onDateChange={setDayDate}
+                onCreateRange={handleDayCreateRange}
+                onEventClick={handleEventClickFromCalendar}
               />
             ) : notes.length === 0 ? (
               <div className="p-4 md:p-5">
@@ -632,6 +662,7 @@ export default function PinBoard() {
         error={planError}
         onClose={() => setPlanOpen(false)}
         onSaveAsNote={savePlanAsNote}
+        onRetry={handlePrioritize}
       />
 
       <SettingsModal
@@ -643,15 +674,19 @@ export default function PinBoard() {
         onClearAll={handleClear}
       />
 
-      {/* Calendar Event Modal */}
+      {/* Calendar / Day Event Modal */}
       <EventModal
         isOpen={eventModalOpen}
         initialDate={eventInitialDate}
+        initialStartTime={eventInitialStart}
+        initialEndTime={eventInitialEnd}
         note={editingEvent}
         onClose={() => {
           setEventModalOpen(false);
           setEditingEvent(null);
           setEventInitialDate(undefined);
+          setEventInitialStart(undefined);
+          setEventInitialEnd(undefined);
         }}
         onSave={handleSaveEvent}
         onDelete={handleDeleteNote}

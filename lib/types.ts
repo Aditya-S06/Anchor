@@ -32,7 +32,8 @@ export interface Settings {
 
 export const DEFAULT_SETTINGS: Settings = {
   openRouterApiKey: '',
-  aiModel: 'qwen/qwen-2.5-vl-7b-instruct:free',
+  // Must stay in sync with DEFAULT_AI_MODEL in lib/ai.ts
+  aiModel: 'nvidia/nemotron-nano-12b-v2-vl:free',
   theme: 'warm',
 };
 

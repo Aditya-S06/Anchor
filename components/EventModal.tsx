@@ -4,10 +4,13 @@ import React, { useState, useEffect } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { Note, EventCategory } from '../lib/types';
 import { EVENT_CATEGORIES } from '../lib/types';
+import { toLocalDateKey } from '../lib/utils';
 
 interface EventModalProps {
   isOpen: boolean;
   initialDate?: string; // YYYY-MM-DD
+  initialStartTime?: string; // HH:mm from Day drag-create
+  initialEndTime?: string;
   note?: Note | null;   // for editing
   onClose: () => void;
   onSave: (data: {
@@ -28,6 +31,8 @@ const DEFAULT_CATEGORY: EventCategory = 'assignment';
 export default function EventModal({
   isOpen,
   initialDate,
+  initialStartTime,
+  initialEndTime,
   note,
   onClose,
   onSave,
@@ -56,17 +61,17 @@ export default function EventModal({
       setInstructor(note.instructor || '');
       setContent(note.content || '');
     } else {
-      // New event
+      // New event (Day drag may prefill times)
       setTitle('');
       setCategory(DEFAULT_CATEGORY);
-      setDueDate(initialDate || new Date().toISOString().slice(0, 10));
-      setStartTime('');
-      setEndTime('');
+      setDueDate(initialDate || toLocalDateKey(new Date()));
+      setStartTime(initialStartTime || '');
+      setEndTime(initialEndTime || '');
       setLocation('');
       setInstructor('');
       setContent('');
     }
-  }, [isOpen, note, initialDate]);
+  }, [isOpen, note, initialDate, initialStartTime, initialEndTime]);
 
   function inferCategoryFromNote(n: Note): EventCategory {
     if (n.category) return n.category;

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Settings } from '../lib/types';
-import { RECOMMENDED_MODELS } from '../lib/ai';
+import { RECOMMENDED_MODELS, DEFAULT_AI_MODEL, normalizeAiModel } from '../lib/ai';
 import { toast } from 'sonner';
 
 interface SettingsModalProps {
@@ -23,36 +23,54 @@ export default function SettingsModal({
   onExport,
   onClearAll,
 }: SettingsModalProps) {
+  // Reset draft fields when the modal opens (keyed remount avoids setState-in-effect)
+  if (!isOpen) return null;
+
+  // Unmount when closed so drafts re-sync from settings on next open
+  return (
+    <SettingsModalBody
+      settings={settings}
+      onClose={onClose}
+      onUpdate={onUpdate}
+      onExport={onExport}
+      onClearAll={onClearAll}
+    />
+  );
+}
+
+function SettingsModalBody({
+  settings,
+  onClose,
+  onUpdate,
+  onExport,
+  onClearAll,
+}: Omit<SettingsModalProps, 'isOpen'>) {
   const [keyInput, setKeyInput] = useState(settings.openRouterApiKey);
   const [modelInput, setModelInput] = useState(settings.aiModel);
 
   useEffect(() => {
-    if (isOpen) {
-      const originalOverflow = document.body.style.overflow;
-      document.body.style.overflow = 'hidden';
-      return () => {
-        document.body.style.overflow = originalOverflow;
-      };
-    }
-  }, [isOpen]);
-
-  // Sync local state when modal opens or settings change externally
-  useEffect(() => {
-    if (isOpen) {
-      setKeyInput(settings.openRouterApiKey);
-      setModelInput(settings.aiModel);
-    }
-  }, [isOpen, settings.openRouterApiKey, settings.aiModel]);
-
-  if (!isOpen) return null;
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = originalOverflow;
+    };
+  }, []);
 
   const handleSaveKey = () => {
     onUpdate({ openRouterApiKey: keyInput.trim() });
     toast.success('API key saved locally');
   };
 
-  const handleSaveModel = () => {
-    onUpdate({ aiModel: modelInput.trim() });
+  const handleSaveModel = (raw?: string) => {
+    const next = normalizeAiModel((raw ?? modelInput).trim());
+    setModelInput(next);
+    onUpdate({ aiModel: next });
+    toast.success('Model updated');
+  };
+
+  const handleSelectModel = (id: string) => {
+    setModelInput(id);
+    onUpdate({ aiModel: normalizeAiModel(id) });
     toast.success('Model updated');
   };
 
@@ -68,11 +86,16 @@ export default function SettingsModal({
     }
   };
 
+  // Keep select controlled even if custom model is not in the list
+  const selectValue = RECOMMENDED_MODELS.some((m) => m.id === modelInput)
+    ? modelInput
+    : '__custom__';
+
   return (
     <div className="fixed inset-0 z-[90] flex items-center justify-center bg-black/45 p-4" onClick={onClose}>
-      <div 
-        className="modal w-full max-w-md max-h-[90vh] flex flex-col bg-[#f8f1e3] rounded-2xl border border-[#d9c9a8] shadow-xl overflow-hidden" 
-        onClick={e => e.stopPropagation()}
+      <div
+        className="modal w-full max-w-md max-h-[90vh] flex flex-col bg-[#f8f1e3] rounded-2xl border border-[#d9c9a8] shadow-xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
       >
         <div className="px-6 py-4 flex justify-between border-b flex-shrink-0">
           <div className="font-semibold">Settings</div>
@@ -95,14 +118,22 @@ export default function SettingsModal({
             <p className="mt-1 text-[10px]">This is the standard pattern for fully-offline local AI tools.</p>
           </div>
 
-          {/* Common 404 Error Help */}
+          {/* Model / free-tier help */}
           <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900">
-            <div className="font-semibold mb-1">Having "404 No endpoints found"?</div>
-            <p>This is very common with free models on OpenRouter.</p>
+            <div className="font-semibold mb-1">AI not working?</div>
             <ol className="list-decimal ml-4 mt-1 space-y-0.5 text-[11px]">
-              <li>Go to <a href="https://openrouter.ai/settings/privacy" target="_blank" className="underline">https://openrouter.ai/settings/privacy</a></li>
-              <li>Enable "Allow my data to be used..." or turn off restrictions for free models.</li>
-              <li>Try switching to a different model in the dropdown above (e.g. without <code>:free</code> or the NVIDIA VL model).</li>
+              <li>
+                Use a <strong>recommended free vision model</strong> (default:{' '}
+                <code className="text-[10px]">{DEFAULT_AI_MODEL}</code>).
+              </li>
+              <li>
+                Free models may need privacy opt-in:{' '}
+                <a href="https://openrouter.ai/settings/privacy" target="_blank" rel="noreferrer" className="underline">
+                  openrouter.ai/settings/privacy
+                </a>
+              </li>
+              <li>Old Qwen free IDs like <code className="text-[10px]">qwen/qwen-2.5-vl-…:free</code> were retired and are auto-reset.</li>
+              <li>If you hit rate limits, wait ~30s or try another free model.</li>
             </ol>
           </div>
 
@@ -122,26 +153,42 @@ export default function SettingsModal({
 
           {/* Model */}
           <div>
-            <div className="font-medium mb-1.5">Vision Model</div>
+            <label htmlFor="vision-model-select" className="block font-medium mb-1.5">
+              Vision Model
+            </label>
             <select
-              value={modelInput}
-              onChange={(e) => setModelInput(e.target.value)}
+              id="vision-model-select"
+              value={selectValue}
+              onChange={(e) => {
+                if (e.target.value === '__custom__') return;
+                handleSelectModel(e.target.value);
+              }}
               className="input w-full"
             >
               {RECOMMENDED_MODELS.map((m) => (
-                <option key={m} value={m}>{m}</option>
+                <option key={m.id} value={m.id}>
+                  {m.free ? '🆓 ' : '💳 '}
+                  {m.label}
+                </option>
               ))}
+              {selectValue === '__custom__' && (
+                <option value="__custom__">Custom: {modelInput}</option>
+              )}
             </select>
             <div className="mt-1 flex gap-2">
               <input
+                id="vision-model-custom"
+                aria-label="Custom model id"
                 value={modelInput}
                 onChange={(e) => setModelInput(e.target.value)}
-                className="input flex-1 text-xs"
+                className="input flex-1 text-xs font-mono"
                 placeholder="Custom model id"
               />
-              <button onClick={handleSaveModel} className="btn btn-ghost text-xs">Save</button>
+              <button onClick={() => handleSaveModel()} className="btn btn-ghost text-xs">Save</button>
             </div>
-            <div className="text-[10px] text-[#66533f] mt-1">Default: qwen-2.5-vl-7b-instruct:free (great for vision tasks)</div>
+            <div className="text-[10px] text-[#66533f] mt-1">
+              Default free VL: <code>{DEFAULT_AI_MODEL}</code>
+            </div>
           </div>
 
           {/* Theme */}
@@ -169,7 +216,7 @@ export default function SettingsModal({
             <div className="flex flex-wrap gap-2">
               <button onClick={onExport} className="btn btn-ghost text-xs px-4">Export JSON</button>
               <button onClick={handleClear} className="btn text-xs px-4 bg-red-600 text-white hover:bg-red-700">Clear All Data</button>
-              <button 
+              <button
                 onClick={() => {
                   if ('serviceWorker' in navigator) {
                     navigator.serviceWorker.getRegistration().then((reg) => {
@@ -180,7 +227,7 @@ export default function SettingsModal({
                       }
                     });
                   }
-                }} 
+                }}
                 className="btn btn-ghost text-xs px-4"
               >
                 Check for updates

@@ -2,8 +2,8 @@
 
 import React, { useState } from 'react';
 import { X, Upload, Loader2, Check } from 'lucide-react';
-import { ProposedNote } from '../lib/ai';
-import { NoteType, EventCategory } from '../lib/types';
+import { ProposedNote, DEFAULT_AI_MODEL, normalizeAiModel } from '../lib/ai';
+import { EventCategory } from '../lib/types';
 import { EVENT_CATEGORIES } from '../lib/types';
 import { fileToBase64 } from '../lib/ai';
 import { toast } from 'sonner';
@@ -14,7 +14,11 @@ interface UploadModalProps {
   apiKey: string;
   model: string;
   onConfirmNotes: (notes: ProposedNote[]) => void;
-  extractFn: (base64: string, key: string, model: string) => Promise<{ notes: ProposedNote[]; error?: string }>;
+  extractFn: (
+    base64: string,
+    key: string,
+    model: string
+  ) => Promise<{ notes: ProposedNote[]; error?: string; usedFallbackModel?: string }>;
 }
 
 export default function UploadModal({
@@ -66,7 +70,7 @@ export default function UploadModal({
     if (f) handleFile(f);
   };
 
-  const analyze = async () => {
+  const analyze = async (overrideModel?: string) => {
     if (!file) return;
     if (!apiKey) {
       setError('Please add your OpenRouter API key in Settings first.');
@@ -78,7 +82,7 @@ export default function UploadModal({
 
     try {
       const base64 = await fileToBase64(file);
-      const result = await extractFn(base64, apiKey, model);
+      const result = await extractFn(base64, apiKey, overrideModel || model);
 
       if (result.error) {
         setError(result.error);
@@ -93,13 +97,24 @@ export default function UploadModal({
         setError('No notes found. Try a clearer photo.');
       } else {
         setProposed(result.notes);
+        if (result.usedFallbackModel) {
+          toast.message(`Primary model unavailable — used ${result.usedFallbackModel}`);
+        }
       }
-    } catch (e: any) {
-      setError(e.message || 'Analysis failed.');
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Analysis failed.';
+      setError(msg);
     } finally {
       setLoading(false);
     }
   };
+
+  const isModelError =
+    !!error &&
+    (error.toLowerCase().includes('not a valid model') ||
+      error.toLowerCase().includes('invalid or no longer') ||
+      error.toLowerCase().includes('no endpoints') ||
+      error.toLowerCase().includes('model id'));
 
   const updateProposed = (index: number, updates: Partial<ProposedNote>) => {
     setProposed((prev) =>
@@ -168,10 +183,10 @@ export default function UploadModal({
                   </div>
                   <div className="md:col-span-3">
                     <div className="text-xs mb-1.5 font-medium text-[#66533f]">MODEL</div>
-                    <div className="text-sm mb-4 bg-white rounded px-3 py-2 border border-[#d9c9a8]">{model}</div>
+                    <div className="text-sm mb-4 bg-white rounded px-3 py-2 border border-[#d9c9a8] font-mono text-xs break-all">{model}</div>
 
                     <button
-                      onClick={analyze}
+                      onClick={() => analyze()}
                       disabled={loading || !apiKey || !!cooldownUntil}
                       className="btn btn-primary w-full py-3 text-base disabled:opacity-60"
                     >
@@ -190,9 +205,9 @@ export default function UploadModal({
 
                     {apiKey && (
                       <div className="text-[10px] mt-1.5 text-[#66533f]">
-                        Your key will be used directly from this browser. 
+                        Your key will be used directly from this browser.
                         Clear, well-lit photos of schedules work best.
-                        <a href="https://openrouter.ai/models?input_modalities=image" target="_blank" className="underline ml-1">See available vision models</a>
+                        <a href="https://openrouter.ai/models?input_modalities=image" target="_blank" rel="noreferrer" className="underline ml-1">See available vision models</a>
                         <span className="block mt-0.5 text-amber-600">Free models have strict rate limits — wait between attempts.</span>
                       </div>
                     )}
@@ -200,6 +215,16 @@ export default function UploadModal({
                     {error && (
                       <div className={`text-sm mt-4 p-3 rounded whitespace-pre-wrap text-xs ${error.toLowerCase().includes('rate') ? 'bg-amber-100 text-amber-800 border border-amber-300' : 'bg-red-50 text-red-600'}`}>
                         {error}
+                        {isModelError && normalizeAiModel(model) !== DEFAULT_AI_MODEL && (
+                          <button
+                            type="button"
+                            onClick={() => analyze(DEFAULT_AI_MODEL)}
+                            disabled={loading || !!cooldownUntil}
+                            className="mt-3 btn btn-primary text-xs w-full"
+                          >
+                            Retry with free default model
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>
@@ -321,7 +346,7 @@ export default function UploadModal({
           {!proposed.length ? (
             <button
               disabled={!file || loading || !!cooldownUntil}
-              onClick={analyze}
+              onClick={() => analyze()}
               className="btn btn-primary disabled:opacity-60"
             >
               {loading ? 'Analyzing…' : cooldownUntil ? 'Rate limited — wait...' : 'Analyze with AI'}
