@@ -3,9 +3,10 @@
 import React, { useState } from 'react';
 import { X, Upload, Loader2, Check } from 'lucide-react';
 import { ProposedNote, DEFAULT_AI_MODEL, normalizeAiModel } from '../lib/ai';
-import { EventCategory } from '../lib/types';
+import { EventCategory, Recurrence } from '../lib/types';
 import { EVENT_CATEGORIES } from '../lib/types';
 import { fileToBase64 } from '../lib/ai';
+import RepeatEditor from './RepeatEditor';
 import { toast } from 'sonner';
 
 interface UploadModalProps {
@@ -237,7 +238,7 @@ export default function UploadModal({
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <div className="font-semibold">Review extracted notes</div>
-                  <div className="text-sm text-[#66533f]">Set category, times, location & due date so they appear correctly in Calendar as a schedule.</div>
+                  <div className="text-sm text-[#66533f]">Set category, times, location, due date, and repeat so they appear correctly on the calendar.</div>
                 </div>
                 <div className="text-xs bg-white px-3 py-1 rounded">{proposed.length} notes</div>
               </div>
@@ -322,6 +323,12 @@ export default function UploadModal({
                           }
                           placeholder="tags, comma separated"
                           className="input text-sm"
+                        />
+
+                        <RepeatEditor
+                          compact
+                          value={p.recurrence}
+                          onChange={(recurrence: Recurrence | undefined) => updateProposed(idx, { recurrence })}
                         />
                       </div>
 

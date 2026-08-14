@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import { Check, Edit2, Trash2, Pin } from 'lucide-react';
 import { Note as NoteType } from '../lib/types';
 import { formatDueDate, getDueUrgency, getUrgencyClasses, getNoteTypeColor, getTypeBadgeClasses, clampPosition } from '../lib/utils';
+import { formatRecurrenceLabel, isRecurring } from '../lib/recurrence';
 
 interface NoteProps {
   note: NoteType;
@@ -106,6 +107,13 @@ function Note({
         </div>
       )}
 
+      {isRecurring(note) && (
+        <div className="text-[10px] mt-1 text-[#5c4633] bg-white/50 rounded px-1.5 py-0.5 inline-block">
+          {formatRecurrenceLabel(note.recurrence)}
+          {note.dueDate ? ` · next ${formatDueDate(note.dueDate)}` : ''}
+        </div>
+      )}
+
       <div className="note-footer mt-auto pt-2">
         <button
           onClick={(e) => {
@@ -113,7 +121,20 @@ function Note({
             onToggleComplete(note.id);
           }}
           className="flex h-6 w-6 items-center justify-center rounded hover:bg-black/5 active:bg-black/10"
-          aria-label={note.completed ? 'Mark incomplete' : 'Mark complete'}
+          aria-label={
+            isRecurring(note)
+              ? note.completed
+                ? 'Mark incomplete'
+                : 'Done for this occurrence — roll to next due date'
+              : note.completed
+                ? 'Mark incomplete'
+                : 'Mark complete'
+          }
+          title={
+            isRecurring(note) && !note.completed
+              ? `Done for this occurrence → next due ${note.dueDate || ''}`
+              : undefined
+          }
         >
           <Check size={15} className={note.completed ? 'text-emerald-700' : 'text-black/40'} />
         </button>
@@ -162,6 +183,7 @@ const areEqual = (prev: NoteProps, next: NoteProps) => {
     p.type === n.type &&
     p.color === n.color &&
     p.source === n.source &&
+    JSON.stringify(p.recurrence) === JSON.stringify(n.recurrence) &&
     prev.isHighlighted === next.isHighlighted
   );
 };

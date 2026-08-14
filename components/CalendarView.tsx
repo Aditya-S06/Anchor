@@ -9,10 +9,8 @@ import {
   addMonth,
   groupNotesByDate,
   formatTimeDisplay,
-  noteIsOverdue,
+  occurrenceIsOverdue,
   getCategoryClasses,
-  getCategoryLabel,
-  getEventCategory,
 } from '../lib/utils';
 import { isToday, isSameMonth, format } from 'date-fns';
 
@@ -34,7 +32,7 @@ export default function CalendarView({
   onAIImport,
 }: CalendarViewProps) {
   const days = getCalendarDays(currentDate);
-  const grouped = groupNotesByDate(notes);
+  const grouped = groupNotesByDate(notes, days[0], days[days.length - 1]);
 
   const goPrev = () => onMonthChange(addMonth(currentDate, -1));
   const goNext = () => onMonthChange(addMonth(currentDate, 1));
@@ -135,14 +133,13 @@ export default function CalendarView({
               {/* Events */}
               <div className="flex-1 space-y-0.5 overflow-hidden text-[10px]">
                 {dayNotes.slice(0, 3).map((note) => {
-                  const isOverdue = noteIsOverdue(note);
+                  const isOverdue = occurrenceIsOverdue(note, dateKey);
                   const catClasses = getCategoryClasses(note, isOverdue);
-                  const cat = getEventCategory(note);
-                  const timeStr = formatTimeDisplay(note.startTime, note.endTime);
+                  const timeStr = formatTimeDisplay(note.startTime || note.recurrence?.dueTime, note.endTime);
 
                   return (
                     <div
-                      key={note.id}
+                      key={`${note.id}-${dateKey}`}
                       onClick={(e) => {
                         e.stopPropagation();
                         onEventClick(note);

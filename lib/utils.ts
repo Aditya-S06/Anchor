@@ -17,6 +17,7 @@ import {
   isSameDay,
 } from 'date-fns';
 import { Note, NoteType, EventCategory } from './types';
+import { expandNotesInRange, getDisplayStartTime, isRecurring } from './recurrence';
 
 export function generateId(): string {
   return crypto.randomUUID();
@@ -311,24 +312,52 @@ export function parseLocalDateKey(key: string): Date {
   return new Date(y, (m || 1) - 1, d || 1);
 }
 
-// Group notes that have dueDate by YYYY-MM-DD key
-export function groupNotesByDate(notes: Note[]): Record<string, Note[]> {
+// Group notes that have dueDate by YYYY-MM-DD key.
+// Pass a visible range so weekly repeats expand onto each matching day.
+export function groupNotesByDate(
+  notes: Note[],
+  rangeStart?: Date,
+  rangeEnd?: Date
+): Record<string, Note[]> {
   const groups: Record<string, Note[]> = {};
-  for (const note of notes) {
-    if (!note.dueDate) continue;
-    const key = note.dueDate.length > 10 ? note.dueDate.slice(0, 10) : note.dueDate;
+  const add = (key: string, note: Note) => {
     if (!groups[key]) groups[key] = [];
     groups[key].push(note);
+  };
+
+  if (rangeStart && rangeEnd) {
+    for (const { note, dateKey } of expandNotesInRange(notes, rangeStart, rangeEnd)) {
+      add(dateKey, note);
+    }
+  } else {
+    for (const note of notes) {
+      if (isRecurring(note) && note.dueDate) {
+        add(note.dueDate.slice(0, 10), note);
+      } else if (note.dueDate) {
+        add(note.dueDate.slice(0, 10), note);
+      }
+    }
   }
-  // Sort each day's notes by time or title
-  Object.keys(groups).forEach(key => {
+
+  Object.keys(groups).forEach((key) => {
     groups[key].sort((a, b) => {
-      const ta = a.startTime || '23:59';
-      const tb = b.startTime || '23:59';
+      const ta = getDisplayStartTime(a) || '23:59';
+      const tb = getDisplayStartTime(b) || '23:59';
       return ta.localeCompare(tb) || a.title.localeCompare(b.title);
     });
   });
   return groups;
+}
+
+/** Overdue for a specific calendar occurrence (past repeats are not overdue). */
+export function occurrenceIsOverdue(note: Note, dateKey: string): boolean {
+  if (note.completed) return false;
+  if (isRecurring(note) && note.dueDate) {
+    const due = note.dueDate.slice(0, 10);
+    if (dateKey < due) return false;
+    if (dateKey > due) return false;
+  }
+  return isOverdueDate(dateKey, note.completed);
 }
 
 // Generate array of dates for a calendar month grid (includes padding days)

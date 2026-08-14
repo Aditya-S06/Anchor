@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import { X } from 'lucide-react';
 import { Settings } from '../lib/types';
-import { RECOMMENDED_MODELS, DEFAULT_AI_MODEL, normalizeAiModel } from '../lib/ai';
+import { RECOMMENDED_MODELS, RECOMMENDED_CHAT_MODELS, DEFAULT_AI_MODEL, DEFAULT_CHAT_MODEL, normalizeAiModel, normalizeChatModel } from '../lib/ai';
 import { toast } from 'sonner';
 
 interface SettingsModalProps {
@@ -47,6 +47,7 @@ function SettingsModalBody({
 }: Omit<SettingsModalProps, 'isOpen'>) {
   const [keyInput, setKeyInput] = useState(settings.openRouterApiKey);
   const [modelInput, setModelInput] = useState(settings.aiModel);
+  const [chatInput, setChatInput] = useState(settings.chatModel);
 
   useEffect(() => {
     const originalOverflow = document.body.style.overflow;
@@ -71,7 +72,20 @@ function SettingsModalBody({
   const handleSelectModel = (id: string) => {
     setModelInput(id);
     onUpdate({ aiModel: normalizeAiModel(id) });
-    toast.success('Model updated');
+    toast.success('Vision model updated');
+  };
+
+  const handleSaveChatModel = (raw?: string) => {
+    const next = normalizeChatModel((raw ?? chatInput).trim());
+    setChatInput(next);
+    onUpdate({ chatModel: next });
+    toast.success('Chat model updated');
+  };
+
+  const handleSelectChatModel = (id: string) => {
+    setChatInput(id);
+    onUpdate({ chatModel: normalizeChatModel(id) });
+    toast.success('Chat model updated');
   };
 
   const handleTheme = (theme: 'warm' | 'clean') => {
@@ -123,7 +137,10 @@ function SettingsModalBody({
             <div className="font-semibold mb-1">AI not working?</div>
             <ol className="list-decimal ml-4 mt-1 space-y-0.5 text-[11px]">
               <li>
-                Use a <strong>recommended free vision model</strong> (default:{' '}
+                Chat uses <strong>Claude Sonnet 4.5</strong> by default (tool calling). Vision import uses <strong>Qwen2.5 VL 72B</strong>.
+              </li>
+              <li>
+                Use a <strong>recommended vision model</strong> for photos (default:{' '}
                 <code className="text-[10px]">{DEFAULT_AI_MODEL}</code>).
               </li>
               <li>
@@ -149,6 +166,47 @@ function SettingsModalBody({
             />
             <button onClick={handleSaveKey} className="mt-2 btn btn-primary text-xs px-4 py-1">Save Key</button>
             <div className="text-[10px] mt-1 text-[#6d5944]">Stored only in your browser. Never sent to our servers.</div>
+          </div>
+
+          {/* Chat Model */}
+          <div>
+            <label htmlFor="chat-model-select" className="block font-medium mb-1.5">
+              Chat Model
+            </label>
+            <select
+              id="chat-model-select"
+              value={
+                RECOMMENDED_CHAT_MODELS.some((m) => m.id === chatInput) ? chatInput : '__custom__'
+              }
+              onChange={(e) => {
+                if (e.target.value === '__custom__') return;
+                handleSelectChatModel(e.target.value);
+              }}
+              className="input w-full"
+            >
+              {RECOMMENDED_CHAT_MODELS.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.free ? 'Free ' : 'Paid '}
+                  {m.label}
+                </option>
+              ))}
+              {!RECOMMENDED_CHAT_MODELS.some((m) => m.id === chatInput) && (
+                <option value="__custom__">Custom: {chatInput}</option>
+              )}
+            </select>
+            <div className="mt-1 flex gap-2">
+              <input
+                aria-label="Custom chat model id"
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                className="input flex-1 text-xs font-mono"
+                placeholder="Custom chat model id"
+              />
+              <button onClick={() => handleSaveChatModel()} className="btn btn-ghost text-xs">Save</button>
+            </div>
+            <div className="text-[10px] text-[#66533f] mt-1">
+              Default: <code>{DEFAULT_CHAT_MODEL}</code> — used for conversation and tools.
+            </div>
           </div>
 
           {/* Model */}

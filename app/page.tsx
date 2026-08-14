@@ -2,15 +2,16 @@
 
 import React, { useState, useEffect } from 'react';
 import { usePinboardStore, useFilteredNotes } from '../lib/store';
-import { Note, NoteType, EventCategory } from '../lib/types';
+import { Note, NoteType, EventCategory, Recurrence } from '../lib/types';
 import {
   getUpcomingNotes,
   getStats,
   formatDueDate,
   getEventCategory,
-  groupNotesByDate,
 } from '../lib/utils';
-import { extractNotesFromImage, generateDailyPlan, ProposedNote } from '../lib/ai';
+import { extractNotesFromImage, proposedToPartialNote, ProposedNote } from '../lib/ai';
+import { newChatMessage } from '../lib/chat';
+import { formatRecurrenceLabel, isRecurring } from '../lib/recurrence';
 
 import Toolbar from '../components/Toolbar';
 import Board from '../components/Board';
@@ -18,11 +19,11 @@ import UpcomingSidebar from '../components/UpcomingSidebar';
 import EmptyState from '../components/EmptyState';
 import NoteModal from '../components/NoteModal';
 import UploadModal from '../components/UploadModal';
-import AIPlanModal from '../components/AIPlanModal';
 import SettingsModal from '../components/SettingsModal';
 import CalendarView from '../components/CalendarView';
 import DayView from '../components/DayView';
 import EventModal from '../components/EventModal';
+import ChatPanel from '../components/ChatPanel';
 import { toast } from 'sonner';
 
 export default function PinBoard() {
@@ -36,6 +37,7 @@ export default function PinBoard() {
     toggleComplete,
     updateNotePosition,
     batchAddNotes,
+    advanceRecurringNotes,
     setSearchQuery,
     setActiveFilter,
     setViewMode,
@@ -45,6 +47,9 @@ export default function PinBoard() {
     clearAllData,
     exportData,
     toggleUpcomingSidebar,
+    setChatDockOpen,
+    setPendingChatPrompt,
+    addChatMessage,
   } = usePinboardStore();
 
   const filteredNotes = useFilteredNotes();
@@ -56,11 +61,6 @@ export default function PinBoard() {
   const [editingNote, setEditingNote] = useState<Note | null>(null);
 
   const [uploadOpen, setUploadOpen] = useState(false);
-
-  const [planOpen, setPlanOpen] = useState(false);
-  const [planText, setPlanText] = useState('');
-  const [planLoading, setPlanLoading] = useState(false);
-  const [planError, setPlanError] = useState('');
 
   const [settingsOpen, setSettingsOpen] = useState(false);
 
@@ -157,6 +157,12 @@ export default function PinBoard() {
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
+  useEffect(() => {
+    advanceRecurringNotes();
+    const id = window.setInterval(() => advanceRecurringNotes(), 60_000);
+    return () => window.clearInterval(id);
+  }, [advanceRecurringNotes]);
+
   // Keyboard shortcuts
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -186,7 +192,14 @@ export default function PinBoard() {
     setNoteModalOpen(true);
   };
 
-  const handleSaveNote = (data: { type: NoteType; title: string; content: string; dueDate?: string; tags?: string[] }) => {
+  const handleSaveNote = (data: {
+    type: NoteType;
+    title: string;
+    content: string;
+    dueDate?: string;
+    tags?: string[];
+    recurrence?: Recurrence;
+  }) => {
     // Infer sensible category for new notes created via basic modal
     const inferredCat: EventCategory =
       data.type === 'assignment' ? 'assignment' :
@@ -198,6 +211,7 @@ export default function PinBoard() {
         dueDate: data.dueDate,
         tags: data.tags,
         category: editingNote.category || inferredCat,
+        recurrence: data.recurrence,
       });
       toast.success('Note updated');
     } else {
@@ -206,6 +220,7 @@ export default function PinBoard() {
         completed: false,
         source: 'manual',
         category: inferredCat,
+        recurrence: data.recurrence,
       });
       // Highlight newly created note briefly
       setHighlightNoteId(newNote.id);
@@ -231,6 +246,7 @@ export default function PinBoard() {
     location?: string;
     instructor?: string;
     content: string;
+    recurrence?: Recurrence;
   }) => {
     // Map EventCategory to original NoteType for compatibility
     let mappedType: NoteType = 'general';
@@ -250,6 +266,7 @@ export default function PinBoard() {
         endTime: data.endTime,
         location: data.location,
         instructor: data.instructor,
+        recurrence: data.recurrence,
       });
       toast.success('Event updated');
     } else {
@@ -266,6 +283,7 @@ export default function PinBoard() {
         endTime: data.endTime,
         location: data.location,
         instructor: data.instructor,
+        recurrence: data.recurrence,
       });
       setHighlightNoteId(newNote.id);
       setTimeout(() => clearHighlight(), 1600);
@@ -330,99 +348,61 @@ export default function PinBoard() {
     }, 2200);
   };
 
-  // AI Vision flow - enhanced with smart category detection
-  const handleConfirmAI = (proposed: ProposedNote[]) => {
-    const prepared = proposed.map((p) => {
-      const lower = (p.title + ' ' + p.content).toLowerCase();
-      // Prefer category from AI if valid, else infer
-      let category: EventCategory = p.category && ['assignment', 'exam', 'class', 'general'].includes(p.category)
-        ? p.category
-        : 'general';
-
-      if (!p.category) {
-        if (p.type === 'assignment') {
-          category = 'assignment';
-        } else if (lower.includes('exam') || lower.includes('test') || lower.includes('midterm') || lower.includes('final') || lower.includes('quiz')) {
-          category = 'exam';
-        } else if (lower.includes('class') || lower.includes('lecture') || lower.includes('lab') || lower.includes('discussion') || lower.includes('recitation')) {
-          category = 'class';
-        } else if (p.type === 'permanent') {
-          category = 'exam';
-        }
-      }
-
-      // Map to original type for backward compat
-      let mappedType: NoteType = p.type;
-      if (category === 'exam' || category === 'class') mappedType = 'permanent';
-      else if (category === 'assignment') mappedType = 'assignment';
-
-      return {
-        type: mappedType,
-        title: p.title,
-        content: p.content,
-        dueDate: p.dueDate || undefined,
-        tags: p.tags,
-        completed: false,
-        source: 'ai' as const,
-        category,
-        startTime: p.startTime,
-        endTime: p.endTime,
-        location: p.location,
-        instructor: p.instructor,
-      };
-    });
-
-    batchAddNotes(prepared);
-    toast.success(`${prepared.length} notes added from AI`);
+  const jumpToCalendar = (date: Date) => {
+    setCalendarDate(date);
+    setDayDate(date);
+    setViewMode('calendar');
   };
 
-  // AI Prioritize Today
-  const handlePrioritize = async () => {
-    const apiKey = settings.openRouterApiKey;
-    if (!apiKey) {
+  const jumpToNote = (id: string) => {
+    const note = usePinboardStore.getState().notes.find((n) => n.id === id);
+    setHighlightNoteId(id);
+    setViewMode('board');
+    if (note) {
+      const container = document.querySelector('.board-container');
+      if (container) {
+        const targetX = Math.max(0, note.position.x - 280);
+        const targetY = Math.max(0, note.position.y - 140);
+        container.scrollTo({ left: targetX, top: targetY, behavior: 'smooth' });
+      }
+    }
+    setTimeout(() => clearHighlight(), 2200);
+  };
+
+  const handleConfirmAI = (proposed: ProposedNote[]) => {
+    const prepared = proposed.map(proposedToPartialNote);
+    const created = batchAddNotes(prepared);
+    const firstDated = created.find((n) => n.dueDate);
+    addChatMessage(
+      newChatMessage(
+        'assistant',
+        `Added ${created.length} item${created.length === 1 ? '' : 's'} from photo import.`,
+        { addedNoteIds: created.map((n) => n.id) }
+      )
+    );
+    toast.success(`${created.length} notes added from AI`, {
+      action: firstDated
+        ? {
+            label: 'View calendar',
+            onClick: () => {
+              const [y, m, d] = firstDated.dueDate!.split('-').map(Number);
+              jumpToCalendar(new Date(y, (m || 1) - 1, d || 1));
+            },
+          }
+        : undefined,
+    });
+  };
+
+  const handlePrioritize = () => {
+    if (!settings.openRouterApiKey) {
       toast.error('Please add your OpenRouter API key in Settings');
       setSettingsOpen(true);
       return;
     }
-
-    const activeNotes = notes
-      .filter((n) => !n.completed)
-      .map((n) => ({
-        title: n.title,
-        content: n.content,
-        type: n.type,
-        dueDate: n.dueDate,
-      }));
-
-    setPlanOpen(true);
-    setPlanLoading(true);
-    setPlanError('');
-    setPlanText('');
-
-    const result = await generateDailyPlan(activeNotes, apiKey, settings.aiModel);
-
-    setPlanLoading(false);
-    if (result.error) {
-      setPlanError(result.error);
-    } else {
-      setPlanText(result.plan);
-      if (result.usedFallbackModel) {
-        toast.message(`Primary model unavailable — used ${result.usedFallbackModel}`);
-      }
-    }
-  };
-
-  const savePlanAsNote = () => {
-    if (!planText) return;
-    addNote({
-      type: 'general',
-      title: 'AI Daily Plan',
-      content: planText,
-      completed: false,
-      source: 'ai',
-    });
-    toast.success('Plan saved to board');
-    setPlanOpen(false);
+    setViewMode('chat');
+    setPendingChatPrompt(
+      "Create a concise daily plan from my current notes. Start with overdue and due-soon items. Don't create new notes unless I ask."
+    );
   };
 
   // Export handler
@@ -484,6 +464,8 @@ export default function PinBoard() {
         onOpenSettings={() => setSettingsOpen(true)}
         viewMode={ui.viewMode}
         onViewModeChange={setViewMode}
+        chatDockOpen={ui.chatDockOpen}
+        onToggleChatDock={() => setChatDockOpen(!ui.chatDockOpen)}
       />
 
       {/* Install banner for PWA */}
@@ -524,9 +506,16 @@ export default function PinBoard() {
             </button>
           </div>
 
-          {/* Content: Board | List | Calendar | Day */}
+          {/* Content: Board | List | Calendar | Day | Chat */}
           <div className="flex-1 overflow-auto bg-[#ede3d1]">
-            {ui.viewMode === 'calendar' ? (
+            {ui.viewMode === 'chat' ? (
+              <ChatPanel
+                variant="full"
+                onOpenSettings={() => setSettingsOpen(true)}
+                onJumpToNote={jumpToNote}
+                onJumpToCalendar={jumpToCalendar}
+              />
+            ) : ui.viewMode === 'calendar' ? (
               <CalendarView
                 notes={notes}
                 currentDate={calendarDate}
@@ -588,6 +577,9 @@ export default function PinBoard() {
                             {note.dueDate && (
                               <span className="text-xs font-medium text-[#664d33]">{formatDueDate(note.dueDate)}</span>
                             )}
+                            {isRecurring(note) && (
+                              <span className="text-[10px] text-[#66533f]">{formatRecurrenceLabel(note.recurrence)}</span>
+                            )}
                           </div>
                           <div className={`font-semibold mt-0.5 ${note.completed ? 'line-through opacity-60' : ''}`}>{note.title}</div>
                           {note.content && <div className="text-sm text-[#66533f] line-clamp-1">{note.content}</div>}
@@ -612,6 +604,15 @@ export default function PinBoard() {
             )}
           </div>
         </div>
+
+        {ui.chatDockOpen && ui.viewMode !== 'chat' && !isMobile && (
+          <ChatPanel
+            variant="dock"
+            onOpenSettings={() => setSettingsOpen(true)}
+            onJumpToNote={jumpToNote}
+            onJumpToCalendar={jumpToCalendar}
+          />
+        )}
 
         {/* Sidebar (desktop) */}
         <UpcomingSidebar
@@ -653,16 +654,6 @@ export default function PinBoard() {
         model={settings.aiModel}
         onConfirmNotes={handleConfirmAI}
         extractFn={extractNotesFromImage}
-      />
-
-      <AIPlanModal
-        isOpen={planOpen}
-        plan={planText}
-        loading={planLoading}
-        error={planError}
-        onClose={() => setPlanOpen(false)}
-        onSaveAsNote={savePlanAsNote}
-        onRetry={handlePrioritize}
       />
 
       <SettingsModal

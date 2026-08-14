@@ -2,8 +2,10 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Trash2 } from 'lucide-react';
-import { Note, NoteType } from '../lib/types';
-import { parseDueDate } from '../lib/utils';
+import { Note, NoteType, Recurrence } from '../lib/types';
+import { toLocalDateKey } from '../lib/utils';
+import RepeatEditor from './RepeatEditor';
+import { seedRecurrence } from '../lib/recurrence';
 
 interface NoteModalProps {
   isOpen: boolean;
@@ -15,6 +17,7 @@ interface NoteModalProps {
     content: string;
     dueDate?: string;
     tags?: string[];
+    recurrence?: Recurrence;
   }) => void;
   onDelete?: (id: string) => void;
 }
@@ -32,6 +35,7 @@ export default function NoteModal({ isOpen, note, onClose, onSave, onDelete }: N
   const [dueDate, setDueDate] = useState('');
   const [hasDue, setHasDue] = useState(false);
   const [tagsInput, setTagsInput] = useState('');
+  const [recurrence, setRecurrence] = useState<Recurrence | undefined>(undefined);
 
   useEffect(() => {
     if (note) {
@@ -42,6 +46,7 @@ export default function NoteModal({ isOpen, note, onClose, onSave, onDelete }: N
       setDueDate(parsed);
       setHasDue(!!note.dueDate);
       setTagsInput(note.tags?.join(', ') || '');
+      setRecurrence(note.recurrence);
     } else {
       setType('general');
       setTitle('');
@@ -49,6 +54,7 @@ export default function NoteModal({ isOpen, note, onClose, onSave, onDelete }: N
       setDueDate('');
       setHasDue(false);
       setTagsInput('');
+      setRecurrence(undefined);
     }
   }, [note, isOpen]);
 
@@ -64,12 +70,23 @@ export default function NoteModal({ isOpen, note, onClose, onSave, onDelete }: N
       .map((t) => t.trim())
       .filter(Boolean);
 
+    let due = hasDue && dueDate ? dueDate : undefined;
+    let rec = recurrence;
+    if (rec?.daysOfWeek.length) {
+      const seeded = seedRecurrence(rec, due || toLocalDateKey(new Date()));
+      if (seeded) {
+        due = seeded.dueDate;
+        rec = seeded.recurrence;
+      }
+    }
+
     onSave({
       type,
       title: title.trim(),
       content: content.trim(),
-      dueDate: hasDue && dueDate ? dueDate : undefined,
+      dueDate: due,
       tags: parsedTags.length ? parsedTags : undefined,
+      recurrence: rec,
     });
     onClose();
   };
@@ -84,7 +101,7 @@ export default function NoteModal({ isOpen, note, onClose, onSave, onDelete }: N
   return (
     <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4" onClick={onClose}>
       <div
-        className="modal w-full max-w-lg rounded-2xl bg-[#f8f1e3] shadow-xl border border-[#d9c9a8] p-6"
+        className="modal w-full max-w-lg rounded-2xl bg-[#f8f1e3] shadow-xl border border-[#d9c9a8] p-6 max-h-[92vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKey}
       >
@@ -157,6 +174,14 @@ export default function NoteModal({ isOpen, note, onClose, onSave, onDelete }: N
               />
             )}
           </div>
+
+          <RepeatEditor
+            value={recurrence}
+            onChange={(r) => {
+              setRecurrence(r);
+              if (r && !hasDue) setHasDue(true);
+            }}
+          />
 
           <div>
             <div className="text-xs font-medium mb-1 text-[#66533f]">TAGS (comma separated)</div>

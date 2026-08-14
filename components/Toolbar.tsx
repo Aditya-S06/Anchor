@@ -1,8 +1,8 @@
 'use client';
 
 import React from 'react';
-import { Plus, Upload, Sparkles, Search, Settings as SettingsIcon } from 'lucide-react';
-import { NoteType } from '../lib/types';
+import { Plus, Upload, Sparkles, Search, Settings as SettingsIcon, MessageSquare } from 'lucide-react';
+import { NoteType, ViewMode } from '../lib/types';
 
 interface ToolbarProps {
   searchQuery: string;
@@ -13,8 +13,10 @@ interface ToolbarProps {
   onUpload: () => void;
   onPrioritize: () => void;
   onOpenSettings: () => void;
-  viewMode: 'board' | 'list' | 'calendar' | 'day';
-  onViewModeChange: (m: 'board' | 'list' | 'calendar' | 'day') => void;
+  viewMode: ViewMode;
+  onViewModeChange: (m: ViewMode) => void;
+  chatDockOpen?: boolean;
+  onToggleChatDock?: () => void;
 }
 
 const FILTERS: Array<'all' | NoteType> = ['all', 'general', 'assignment', 'permanent'];
@@ -30,6 +32,8 @@ export default function Toolbar({
   onOpenSettings,
   viewMode,
   onViewModeChange,
+  chatDockOpen,
+  onToggleChatDock,
 }: ToolbarProps) {
   return (
     <div className="toolbar flex flex-col md:flex-row gap-3 md:items-center px-4 md:px-6 py-3 sticky top-0 z-50">
@@ -92,7 +96,24 @@ export default function Toolbar({
           >
             Day
           </button>
+          <button
+            onClick={() => onViewModeChange('chat')}
+            className={`px-3 py-1.5 transition-colors ${viewMode === 'chat' ? 'bg-[#3f2a1f] text-white' : 'hover:bg-[#f4ebdc]'}`}
+          >
+            Chat
+          </button>
         </div>
+
+        {onToggleChatDock && (
+          <button
+            onClick={onToggleChatDock}
+            className={`btn text-sm gap-1.5 hidden md:flex ${chatDockOpen ? 'btn-primary' : 'btn-ghost'}`}
+            aria-pressed={!!chatDockOpen}
+            title="Keep chat open beside the board or calendar"
+          >
+            <MessageSquare size={16} /> Dock
+          </button>
+        )}
 
         <button onClick={onAddNote} className="btn btn-primary text-sm gap-1.5">
           <Plus size={16} /> Add Note

@@ -1,97 +1,114 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { Note, NoteType, Settings, DEFAULT_SETTINGS } from './types';
+import { ChatMessage, Note, NoteType, Settings, DEFAULT_SETTINGS, ViewMode } from './types';
 import { generateId, getInitialPosition, getRandomRotation, clampPosition, filterNotes } from './utils';
-import { normalizeAiModel } from './ai';
+import { normalizeAiModel, normalizeChatModel } from './ai';
+import { advanceOnComplete, tryAdvanceElapsed } from './recurrence';
 
 interface UIState {
   searchQuery: string;
   activeFilter: 'all' | NoteType;
-  viewMode: 'board' | 'list' | 'calendar' | 'day';
+  viewMode: ViewMode;
   selectedNoteId: string | null;
   highlightNoteId: string | null;
   upcomingCollapsed: boolean;
+  chatDockOpen: boolean;
+  pendingChatPrompt: string | null;
 }
 
 interface PinboardState {
   notes: Note[];
   settings: Settings;
   ui: UIState;
+  chatMessages: ChatMessage[];
 
-  // Note actions
-  addNote: (note: Omit<Note, 'id' | 'createdAt' | 'position' | 'rotation'> & { position?: { x: number; y: number } }) => Note;
+  addNote: (
+    note: Omit<Note, 'id' | 'createdAt' | 'position' | 'rotation'> & { position?: { x: number; y: number } }
+  ) => Note;
   updateNote: (id: string, updates: Partial<Note>) => void;
   deleteNote: (id: string) => void;
   toggleComplete: (id: string) => void;
   updateNotePosition: (id: string, position: { x: number; y: number }) => void;
-  batchAddNotes: (notes: Omit<Note, 'id' | 'createdAt' | 'position' | 'rotation'>[]) => void;
+  batchAddNotes: (
+    notes: Omit<Note, 'id' | 'createdAt' | 'position' | 'rotation'>[]
+  ) => Note[];
+  advanceRecurringNotes: () => void;
 
-  // UI
   setSearchQuery: (query: string) => void;
   setActiveFilter: (filter: 'all' | NoteType) => void;
-  setViewMode: (mode: 'board' | 'list' | 'calendar' | 'day') => void;
+  setViewMode: (mode: ViewMode) => void;
   setSelectedNoteId: (id: string | null) => void;
   setHighlightNoteId: (id: string | null) => void;
   clearHighlight: () => void;
   toggleUpcomingSidebar: () => void;
+  setChatDockOpen: (open: boolean) => void;
+  setPendingChatPrompt: (prompt: string | null) => void;
 
-  // Settings
+  addChatMessage: (msg: ChatMessage) => void;
+  updateChatMessage: (id: string, updates: Partial<ChatMessage>) => void;
+  clearChat: () => void;
+
   updateSettings: (updates: Partial<Settings>) => void;
 
-  // Data
   clearAllData: () => void;
   exportData: () => string;
   importData: (json: string) => boolean;
 
-  // Helpers
   getNoteById: (id: string) => Note | undefined;
 }
 
-const DEFAULT_BOARD_NOTES: Note[] = [];
+const DEFAULT_UI: UIState = {
+  searchQuery: '',
+  activeFilter: 'all',
+  viewMode: 'board',
+  selectedNoteId: null,
+  highlightNoteId: null,
+  upcomingCollapsed: false,
+  chatDockOpen: false,
+  pendingChatPrompt: null,
+};
+
+function buildNote(
+  partialNote: Omit<Note, 'id' | 'createdAt' | 'position' | 'rotation'> & { position?: { x: number; y: number } },
+  index: number,
+  now: string
+): Note {
+  const position = partialNote.position || getInitialPosition(index);
+  return {
+    id: generateId(),
+    type: partialNote.type,
+    title: partialNote.title,
+    content: partialNote.content,
+    dueDate: partialNote.dueDate,
+    color: partialNote.color,
+    position: clampPosition(position),
+    rotation: getRandomRotation(),
+    completed: partialNote.completed ?? false,
+    createdAt: now,
+    source: partialNote.source,
+    tags: partialNote.tags || [],
+    category: partialNote.category,
+    startTime: partialNote.startTime,
+    endTime: partialNote.endTime,
+    location: partialNote.location,
+    instructor: partialNote.instructor,
+    recurrence: partialNote.recurrence,
+  };
+}
 
 export const usePinboardStore = create<PinboardState>()(
   persist(
     (set, get) => ({
-      notes: DEFAULT_BOARD_NOTES,
+      notes: [],
       settings: DEFAULT_SETTINGS,
-      ui: {
-        searchQuery: '',
-        activeFilter: 'all',
-        viewMode: 'board',
-        selectedNoteId: null,
-        highlightNoteId: null,
-        upcomingCollapsed: false,
-      },
+      ui: { ...DEFAULT_UI },
+      chatMessages: [],
 
       addNote: (partialNote) => {
         const now = new Date().toISOString();
         const index = get().notes.length;
-        const position = partialNote.position || getInitialPosition(index);
-        const rotation = getRandomRotation();
-
-        const newNote: Note = {
-          id: generateId(),
-          type: partialNote.type,
-          title: partialNote.title,
-          content: partialNote.content,
-          dueDate: partialNote.dueDate,
-          color: partialNote.color,
-          position: clampPosition(position),
-          rotation,
-          completed: partialNote.completed ?? false,
-          createdAt: now,
-          source: partialNote.source,
-          tags: partialNote.tags || [],
-          category: partialNote.category,
-          startTime: partialNote.startTime,
-          endTime: partialNote.endTime,
-          location: partialNote.location,
-          instructor: partialNote.instructor,
-        };
-
-        set((state) => ({
-          notes: [...state.notes, newNote],
-        }));
+        const newNote = buildNote(partialNote, index, now);
+        set((state) => ({ notes: [...state.notes, newNote] }));
         return newNote;
       },
 
@@ -122,9 +139,7 @@ export const usePinboardStore = create<PinboardState>()(
 
       toggleComplete: (id) => {
         set((state) => ({
-          notes: state.notes.map((n) =>
-            n.id === id ? { ...n, completed: !n.completed } : n
-          ),
+          notes: state.notes.map((n) => (n.id === id ? advanceOnComplete(n) : n)),
         }));
       },
 
@@ -139,21 +154,25 @@ export const usePinboardStore = create<PinboardState>()(
       batchAddNotes: (newNotesData) => {
         const now = new Date().toISOString();
         const currentCount = get().notes.length;
-
-        const created = newNotesData.map((partial, idx) => {
-          const pos = getInitialPosition(currentCount + idx);
-          return {
-            id: generateId(),
-            ...partial,
-            position: clampPosition(pos),
-            rotation: getRandomRotation(),
-            completed: false,
-            createdAt: now,
-            source: 'ai' as const,
-          } as Note;
-        });
-
+        const created = newNotesData.map((partial, idx) => buildNote(partial, currentCount + idx, now));
         set((state) => ({ notes: [...state.notes, ...created] }));
+        return created;
+      },
+
+      advanceRecurringNotes: () => {
+        const now = new Date();
+        set((state) => {
+          let changed = false;
+          const notes = state.notes.map((n) => {
+            const next = tryAdvanceElapsed(n, now);
+            if (next !== n && (next.dueDate !== n.dueDate || next.completed !== n.completed)) {
+              changed = true;
+              return next;
+            }
+            return n;
+          });
+          return changed ? { notes } : state;
+        });
       },
 
       setSearchQuery: (query) =>
@@ -179,11 +198,30 @@ export const usePinboardStore = create<PinboardState>()(
           ui: { ...state.ui, upcomingCollapsed: !state.ui.upcomingCollapsed },
         })),
 
+      setChatDockOpen: (open) =>
+        set((state) => ({ ui: { ...state.ui, chatDockOpen: open } })),
+
+      setPendingChatPrompt: (prompt) =>
+        set((state) => ({ ui: { ...state.ui, pendingChatPrompt: prompt } })),
+
+      addChatMessage: (msg) =>
+        set((state) => ({ chatMessages: [...state.chatMessages, msg] })),
+
+      updateChatMessage: (id, updates) =>
+        set((state) => ({
+          chatMessages: state.chatMessages.map((m) => (m.id === id ? { ...m, ...updates } : m)),
+        })),
+
+      clearChat: () => set({ chatMessages: [] }),
+
       updateSettings: (updates) =>
         set((state) => {
           const next = { ...state.settings, ...updates };
           if (updates.aiModel !== undefined) {
             next.aiModel = normalizeAiModel(updates.aiModel);
+          }
+          if (updates.chatModel !== undefined) {
+            next.chatModel = normalizeChatModel(updates.chatModel);
           }
           return { settings: next };
         }),
@@ -191,23 +229,18 @@ export const usePinboardStore = create<PinboardState>()(
       clearAllData: () =>
         set({
           notes: [],
-          ui: {
-            searchQuery: '',
-            activeFilter: 'all',
-            viewMode: 'board',
-            selectedNoteId: null,
-            highlightNoteId: null,
-            upcomingCollapsed: false,
-          },
+          chatMessages: [],
+          ui: { ...DEFAULT_UI },
         }),
 
       exportData: () => {
         const state = get();
         const payload = {
-          version: 1,
+          version: 2,
           exportedAt: new Date().toISOString(),
           notes: state.notes,
           settings: state.settings,
+          chatMessages: state.chatMessages,
         };
         return JSON.stringify(payload, null, 2);
       },
@@ -221,9 +254,11 @@ export const usePinboardStore = create<PinboardState>()(
               ...(parsed.settings || {}),
             };
             importedSettings.aiModel = normalizeAiModel(importedSettings.aiModel);
+            importedSettings.chatModel = normalizeChatModel(importedSettings.chatModel);
             set({
               notes: parsed.notes,
               settings: importedSettings,
+              chatMessages: Array.isArray(parsed.chatMessages) ? parsed.chatMessages : [],
             });
             return true;
           }
@@ -241,8 +276,8 @@ export const usePinboardStore = create<PinboardState>()(
       partialize: (state) => ({
         notes: state.notes,
         settings: state.settings,
+        chatMessages: state.chatMessages,
       }),
-      // Heal retired/typo model IDs from older versions without clearing user data.
       merge: (persisted, current) => {
         const p = (persisted || {}) as Partial<PinboardState>;
         const mergedSettings: Settings = {
@@ -251,11 +286,12 @@ export const usePinboardStore = create<PinboardState>()(
           ...(p.settings || {}),
         };
         mergedSettings.aiModel = normalizeAiModel(mergedSettings.aiModel);
-        // Only apply explicit persisted fields — never spread `p` over actions.
+        mergedSettings.chatModel = normalizeChatModel(mergedSettings.chatModel);
         return {
           ...current,
           settings: mergedSettings,
           notes: Array.isArray(p.notes) ? p.notes : current.notes,
+          chatMessages: Array.isArray(p.chatMessages) ? p.chatMessages : current.chatMessages,
           ui: current.ui,
         };
       },
@@ -263,7 +299,6 @@ export const usePinboardStore = create<PinboardState>()(
   )
 );
 
-// Convenience selector hook for filtered notes
 export function useFilteredNotes() {
   const notes = usePinboardStore((s) => s.notes);
   const search = usePinboardStore((s) => s.ui.searchQuery);

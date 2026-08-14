@@ -12,6 +12,7 @@ import {
   toLocalDateKey,
 } from '../lib/utils';
 import { addDays, format, isSameDay, isToday } from 'date-fns';
+import { getDisplayStartTime, noteOccursOn } from '../lib/recurrence';
 
 // ─── Timeline constants ─────────────────────────────────────────────
 const DAY_START_MIN = 6 * 60; // 6:00 AM
@@ -93,22 +94,27 @@ export default function DayView({
     return () => window.clearInterval(id);
   }, [currentDate]);
 
+  const occurring = useMemo(
+    () => notes.filter((n) => noteOccursOn(n, dateKey)),
+    [notes, dateKey]
+  );
+
+  const allDayNotes = useMemo(
+    () => occurring.filter((n) => minutesFromTime(getDisplayStartTime(n)) == null),
+    [occurring]
+  );
+
   const dayEvents = useMemo(() => {
-    return notes
-      .filter((n) => {
-        if (!n.dueDate) return false;
-        const key = n.dueDate.length > 10 ? n.dueDate.slice(0, 10) : n.dueDate;
-        if (key !== dateKey) return false;
-        return minutesFromTime(n.startTime) != null;
-      })
+    return occurring
+      .filter((n) => minutesFromTime(getDisplayStartTime(n)) != null)
       .map((n) => {
-        const startMin = minutesFromTime(n.startTime)!;
-        const endMin = noteEndMinutes(n, startMin);
+        const startMin = minutesFromTime(getDisplayStartTime(n))!;
+        const endMin = noteEndMinutes({ ...n, startTime: getDisplayStartTime(n) }, startMin);
         return { note: n, startMin, endMin, ...rangeToStyle(startMin, endMin) };
       })
       .filter((e) => e.endMin > DAY_START_MIN && e.startMin < DAY_END_MIN)
       .sort((a, b) => a.startMin - b.startMin);
-  }, [notes, dateKey]);
+  }, [occurring]);
 
   const slots = useMemo(() => {
     const list: { minutes: number; isHour: boolean }[] = [];
@@ -302,6 +308,24 @@ export default function DayView({
       {/* Scrollable timeline */}
       <div className="flex-1 overflow-auto">
         <div className="min-w-[280px] max-w-3xl mx-auto px-2 md:px-4 py-3">
+          {allDayNotes.length > 0 && (
+            <div className="mb-2 rounded-xl border border-[#d9c9a8] bg-[#f8f1e3] p-2 space-y-1">
+              <div className="text-[10px] font-semibold uppercase tracking-wide text-[#66533f] px-1">
+                All day
+              </div>
+              {allDayNotes.map((note) => (
+                <button
+                  key={note.id}
+                  type="button"
+                  onClick={() => onEventClick(note)}
+                  className={`w-full text-left px-2 py-1 rounded-lg border text-xs ${getCategoryClasses(note)}`}
+                >
+                  {note.title}
+                  {note.recurrence ? ' · repeats' : ''}
+                </button>
+              ))}
+            </div>
+          )}
           <div
             className="relative rounded-xl border border-[#d9c9a8] bg-[#f8f1e3] shadow-inner overflow-hidden select-none"
             style={{ height: TIMELINE_HEIGHT }}
@@ -426,7 +450,7 @@ export default function DayView({
               )}
 
               {/* Empty hint */}
-              {dayEvents.length === 0 && !draft && (
+              {dayEvents.length === 0 && allDayNotes.length === 0 && !draft && (
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none z-[5]">
                   <div className="text-center text-[#a38b6d] text-sm px-6 max-w-xs">
                     Drag down the timeline to schedule something for this day

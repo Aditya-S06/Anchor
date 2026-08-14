@@ -2,9 +2,11 @@
 
 import React, { useState, useEffect } from 'react';
 import { X, Trash2 } from 'lucide-react';
-import { Note, EventCategory } from '../lib/types';
+import { Note, EventCategory, Recurrence } from '../lib/types';
 import { EVENT_CATEGORIES } from '../lib/types';
 import { toLocalDateKey } from '../lib/utils';
+import RepeatEditor from './RepeatEditor';
+import { seedRecurrence } from '../lib/recurrence';
 
 interface EventModalProps {
   isOpen: boolean;
@@ -22,6 +24,7 @@ interface EventModalProps {
     location?: string;
     instructor?: string;
     content: string;
+    recurrence?: Recurrence;
   }) => void;
   onDelete?: (id: string) => void;
 }
@@ -46,6 +49,7 @@ export default function EventModal({
   const [location, setLocation] = useState('');
   const [instructor, setInstructor] = useState('');
   const [content, setContent] = useState('');
+  const [recurrence, setRecurrence] = useState<Recurrence | undefined>(undefined);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -60,6 +64,7 @@ export default function EventModal({
       setLocation(note.location || '');
       setInstructor(note.instructor || '');
       setContent(note.content || '');
+      setRecurrence(note.recurrence);
     } else {
       // New event (Day drag may prefill times)
       setTitle('');
@@ -70,6 +75,7 @@ export default function EventModal({
       setLocation('');
       setInstructor('');
       setContent('');
+      setRecurrence(undefined);
     }
   }, [isOpen, note, initialDate, initialStartTime, initialEndTime]);
 
@@ -92,15 +98,26 @@ export default function EventModal({
       return;
     }
 
+    let saveDate = dueDate;
+    let saveRec = recurrence;
+    if (recurrence?.daysOfWeek.length) {
+      const seeded = seedRecurrence(recurrence, dueDate);
+      if (seeded) {
+        saveDate = seeded.dueDate;
+        saveRec = seeded.recurrence;
+      }
+    }
+
     onSave({
       title: title.trim(),
       category,
-      dueDate,
-      startTime: startTime || undefined,
+      dueDate: saveDate,
+      startTime: startTime || saveRec?.dueTime || undefined,
       endTime: endTime || undefined,
       location: location.trim() || undefined,
       instructor: instructor.trim() || undefined,
       content: content.trim(),
+      recurrence: saveRec,
     });
     onClose();
   };
@@ -119,7 +136,7 @@ export default function EventModal({
       onClick={onClose}
     >
       <div
-        className="modal w-full max-w-md rounded-2xl bg-[#f8f1e3] border border-[#d9c9a8] shadow-xl"
+        className="modal w-full max-w-md rounded-2xl bg-[#f8f1e3] border border-[#d9c9a8] shadow-xl max-h-[92vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
@@ -215,6 +232,8 @@ export default function EventModal({
               />
             </div>
           </div>
+
+          <RepeatEditor value={recurrence} onChange={setRecurrence} />
 
           {/* Description */}
           <div>

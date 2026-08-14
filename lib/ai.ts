@@ -1,21 +1,11 @@
 import OpenAI from 'openai';
-import { NoteType, EventCategory } from './types';
+import { EventCategory, Note, NoteType, ProposedItem } from './types';
+import { normalizeRecurrence, seedRecurrence } from './recurrence';
+import { toLocalDateKey } from './utils';
 
 const OPENROUTER_BASE = 'https://openrouter.ai/api/v1';
 
-export interface ProposedNote {
-  type: NoteType;
-  title: string;
-  content: string;
-  dueDate?: string | null;
-  tags?: string[];
-  // Schedule-specific fields extracted by AI
-  category?: EventCategory;
-  startTime?: string;
-  endTime?: string;
-  location?: string;
-  instructor?: string;
-}
+export type ProposedNote = ProposedItem;
 
 export interface ExtractResult {
   notes: ProposedNote[];
@@ -40,8 +30,14 @@ export interface RecommendedModel {
 // Old Qwen free VL slugs (qwen/qwen-2.5-vl-*:free) are retired/invalid.
 export const RECOMMENDED_MODELS: RecommendedModel[] = [
   {
+    id: 'qwen/qwen2.5-vl-72b-instruct',
+    label: 'Qwen2.5 VL 72B (paid, high quality) — default',
+    free: false,
+    vision: true,
+  },
+  {
     id: 'nvidia/nemotron-nano-12b-v2-vl:free',
-    label: 'Nemotron Nano 12B VL (free) — best free default',
+    label: 'Nemotron Nano 12B VL (free)',
     free: true,
     vision: true,
   },
@@ -75,15 +71,32 @@ export const RECOMMENDED_MODELS: RecommendedModel[] = [
     free: false,
     vision: true,
   },
+];
+
+export const RECOMMENDED_CHAT_MODELS: RecommendedModel[] = [
   {
-    id: 'qwen/qwen2.5-vl-72b-instruct',
-    label: 'Qwen2.5 VL 72B (paid, high quality)',
+    id: 'anthropic/claude-sonnet-4.5',
+    label: 'Claude Sonnet 4.5 (paid) — best for chat + tools',
+    free: false,
+    vision: false,
+  },
+  {
+    id: 'openai/gpt-4o',
+    label: 'GPT-4o (paid, multimodal)',
+    free: false,
+    vision: true,
+  },
+  {
+    id: 'openai/gpt-4o-mini',
+    label: 'GPT-4o mini (paid, cheaper)',
     free: false,
     vision: true,
   },
 ];
 
-export const DEFAULT_AI_MODEL = RECOMMENDED_MODELS[0].id;
+export const DEFAULT_AI_MODEL = 'qwen/qwen2.5-vl-72b-instruct';
+export const DEFAULT_CHAT_MODEL = 'anthropic/claude-sonnet-4.5';
+export const LEGACY_FREE_VISION_DEFAULT = 'nvidia/nemotron-nano-12b-v2-vl:free';
 
 /** Retired / typo model IDs that must never be sent to OpenRouter. */
 export const DEPRECATED_MODEL_IDS = new Set([
@@ -108,14 +121,19 @@ export function normalizeAiModel(id: string | undefined | null): string {
   const trimmed = (id || '').trim();
   if (!trimmed) return DEFAULT_AI_MODEL;
   if (DEPRECATED_MODEL_IDS.has(trimmed)) return DEFAULT_AI_MODEL;
-  // Common typo: hyphen after "qwen" in Qwen2.5 VL slugs (retired free endpoints)
-  if (trimmed.includes('qwen-2.5-vl')) {
-    return DEFAULT_AI_MODEL;
-  }
+  if (trimmed.includes('qwen-2.5-vl')) return DEFAULT_AI_MODEL;
+  if (trimmed === LEGACY_FREE_VISION_DEFAULT) return DEFAULT_AI_MODEL;
   return trimmed;
 }
 
-function getClient(apiKey: string) {
+export function normalizeChatModel(id: string | undefined | null): string {
+  const trimmed = (id || '').trim();
+  if (!trimmed) return DEFAULT_CHAT_MODEL;
+  if (DEPRECATED_MODEL_IDS.has(trimmed)) return DEFAULT_CHAT_MODEL;
+  return trimmed;
+}
+
+export function getOpenRouterClient(apiKey: string) {
   if (!apiKey) throw new Error('OpenRouter API key is required');
 
   // WARNING: This app is local-first (PWA, works fully offline).
@@ -131,6 +149,52 @@ function getClient(apiKey: string) {
       'X-Title': 'PinBoard',
     },
   });
+}
+
+function getClient(apiKey: string) {
+  return getOpenRouterClient(apiKey);
+}
+
+/** Normalize "12pm", "12:00 PM", "9:30" → "HH:mm". */
+export function normalizeTime(raw: unknown): string | undefined {
+  if (raw == null) return undefined;
+  const s = String(raw).trim();
+  if (!s) return undefined;
+
+  const hm = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?\s*$/);
+  if (hm) {
+    const h = Number(hm[1]);
+    const min = Number(hm[2]);
+    if (h >= 0 && h <= 24 && min >= 0 && min <= 59) {
+      const hh = Math.min(h, 23);
+      return `${String(hh).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    }
+  }
+
+  const ampm = s.match(/^(\d{1,2})(?::(\d{2}))?\s*(am|pm)\.?$/i);
+  if (ampm) {
+    let h = Number(ampm[1]);
+    const min = Number(ampm[2] || '0');
+    const mer = ampm[3].toLowerCase();
+    if (h === 12) h = mer === 'am' ? 0 : 12;
+    else if (mer === 'pm') h += 12;
+    if (h >= 0 && h <= 23 && min >= 0 && min <= 59) {
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    }
+  }
+
+  return undefined;
+}
+
+export function todayContext(now: Date = new Date()): { dateKey: string; label: string; year: number } {
+  const dateKey = toLocalDateKey(now);
+  const label = new Intl.DateTimeFormat('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+    year: 'numeric',
+  }).format(now);
+  return { dateKey, label, year: now.getFullYear() };
 }
 
 // ======================
@@ -278,10 +342,10 @@ export function mapOpenRouterError(err: unknown, context: 'vision' | 'plan' = 'v
     : 'Failed to generate plan. Check your API key and model in Settings.';
 }
 
-// ======================
-// VISION SYSTEM PROMPT
-// ======================
-const VISION_SYSTEM_PROMPT = `You are an expert academic assistant and planner. Carefully analyze the uploaded image of a syllabus, planner page, schedule, calendar, assignment list, or handwritten notes.
+function visionSystemPrompt(today: { dateKey: string; label: string; year: number }): string {
+  return `You are an expert academic assistant and planner. Carefully analyze the uploaded image of a syllabus, planner page, schedule, calendar, assignment list, or handwritten notes.
+
+Today is ${today.label} (${today.dateKey}). Use year ${today.year} when a date has no year. If a date is clearly next calendar year (e.g. January on a fall syllabus after December), use ${today.year + 1}.
 
 Your job is to extract EVERY task, assignment, exam, deadline, recurring class, or useful reminder visible in the image.
 
@@ -295,15 +359,17 @@ For every extracted item:
 - title: short, clear, actionable (under 60 characters)
 - content: course codes + useful details
 - category: "assignment" | "exam" | "class" | "general"
-- dueDate: YYYY-MM-DD only if confident, else null
-- startTime / endTime: "HH:MM" (24h) if times shown on the schedule
+- dueDate: YYYY-MM-DD when a specific date is shown or can be inferred; for weekly repeats this is the NEXT occurrence from today
+- startTime / endTime: "HH:mm" 24h if times are shown
 - location: room, building, or "Zoom" if present
 - instructor: name if shown
 - tags: 0-3 short tags
+- recurrence: for weekly classes/discussions/repeating assignments, ONE item with recurrence (do NOT emit one note per week)
 
 IMPORTANT:
 - Return ONLY a single valid JSON object. No markdown fences, no commentary.
 - If nothing can be extracted, return {"notes":[]}.
+- Weekly repeating items must use recurrence.daysOfWeek (0=Sunday ... 6=Saturday). Example: Mon/Wed discussion → daysOfWeek [1,3].
 
 Response schema:
 {
@@ -314,16 +380,23 @@ Response schema:
       "content": "string",
       "category": "assignment" | "exam" | "class" | "general",
       "dueDate": "YYYY-MM-DD" | null,
-      "startTime": "HH:MM" | null,
-      "endTime": "HH:MM" | null,
+      "startTime": "HH:mm" | null,
+      "endTime": "HH:mm" | null,
       "location": "string" | null,
       "instructor": "string" | null,
-      "tags": ["string"]
+      "tags": ["string"],
+      "recurrence": {
+        "freq": "weekly",
+        "daysOfWeek": [1, 3],
+        "dueTime": "HH:mm" | null,
+        "until": "YYYY-MM-DD" | null
+      } | null
     }
   ]
 }
 
-Be exhaustive. Quality and accuracy of dates and classification matters more than quantity.`;
+Be exhaustive. Quality and accuracy of dates, times, and recurrence matters more than quantity.`;
+}
 
 type LooseNote = {
   type?: string;
@@ -336,6 +409,7 @@ type LooseNote = {
   endTime?: unknown;
   location?: unknown;
   instructor?: unknown;
+  recurrence?: unknown;
 };
 
 function parseJsonLoose(raw: string): { notes?: LooseNote[] } {
@@ -353,7 +427,6 @@ function parseJsonLoose(raw: string): { notes?: LooseNote[] } {
   try {
     return tryParse(cleaned);
   } catch {
-    // Prefer outermost object
     const first = cleaned.indexOf('{');
     const last = cleaned.lastIndexOf('}');
     if (first !== -1 && last > first) {
@@ -369,7 +442,7 @@ function parseJsonLoose(raw: string): { notes?: LooseNote[] } {
   }
 }
 
-function mapRawNotes(rawNotes: LooseNote[]): ProposedNote[] {
+function mapRawNotes(rawNotes: LooseNote[], todayKey: string): ProposedNote[] {
   return rawNotes
     .filter((n) => n && n.title && (n.content || n.title))
     .map((n) => {
@@ -378,44 +451,88 @@ function mapRawNotes(rawNotes: LooseNote[]): ProposedNote[] {
           ? (n.category as EventCategory)
           : undefined;
 
+      const rec = normalizeRecurrence(n.recurrence);
+      const dueRaw =
+        n.dueDate && typeof n.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(n.dueDate)
+          ? n.dueDate.slice(0, 10)
+          : undefined;
+
+      let dueDate = dueRaw;
+      let recurrence = rec;
+      if (rec) {
+        const seeded = seedRecurrence(rec, dueRaw || todayKey);
+        if (seeded) {
+          dueDate = seeded.dueDate;
+          recurrence = seeded.recurrence;
+        }
+      }
+
+      const startTime = normalizeTime(n.startTime) || rec?.dueTime;
+      const dueTime = normalizeTime(rec?.dueTime) || startTime;
+
       return {
         type: (['general', 'assignment', 'permanent'].includes(n.type || '')
           ? n.type
           : 'general') as NoteType,
         title: String(n.title).slice(0, 80).trim(),
         content: String(n.content ?? n.title).slice(0, 600).trim(),
-        dueDate:
-          n.dueDate && typeof n.dueDate === 'string' && /^\d{4}-\d{2}-\d{2}/.test(n.dueDate)
-            ? n.dueDate
-            : undefined,
+        dueDate,
         tags: Array.isArray(n.tags) ? n.tags.slice(0, 3).map(String) : [],
         category: cat,
-        startTime: typeof n.startTime === 'string' ? n.startTime : undefined,
-        endTime: typeof n.endTime === 'string' ? n.endTime : undefined,
+        startTime,
+        endTime: normalizeTime(n.endTime),
         location: n.location ? String(n.location).slice(0, 80) : undefined,
         instructor: n.instructor ? String(n.instructor).slice(0, 60) : undefined,
+        recurrence: recurrence
+          ? { ...recurrence, dueTime: dueTime || recurrence.dueTime }
+          : undefined,
       };
     });
 }
 
-async function callVisionExtract(
+function paidVisionModel(model: string): boolean {
+  return !model.includes(':free');
+}
+
+async function repairJson(
   client: OpenAI,
   model: string,
-  base64Image: string
-): Promise<ProposedNote[]> {
+  broken: string
+): Promise<string> {
   const response = await client.chat.completions.create({
     model,
     messages: [
       {
         role: 'system',
-        content: VISION_SYSTEM_PROMPT,
+        content: 'Fix the following into a single valid JSON object with a "notes" array. Return JSON only.',
+      },
+      { role: 'user', content: broken.slice(0, 12000) },
+    ],
+    max_tokens: 4000,
+    temperature: 0,
+  });
+  return response.choices[0]?.message?.content || '{}';
+}
+
+async function callVisionExtract(
+  client: OpenAI,
+  model: string,
+  base64Image: string,
+  today: { dateKey: string; label: string; year: number }
+): Promise<ProposedNote[]> {
+  const createArgs: OpenAI.Chat.ChatCompletionCreateParamsNonStreaming = {
+    model,
+    messages: [
+      {
+        role: 'system',
+        content: visionSystemPrompt(today),
       },
       {
         role: 'user',
         content: [
           {
             type: 'text',
-            text: 'Analyze this image and return the JSON described in the system prompt. Extract every possible task and deadline.',
+            text: `Today is ${today.label}. Analyze this image and return the JSON described in the system prompt. Extract every possible task, deadline, and weekly repeating class. Use year ${today.year} for undated years.`,
           },
           {
             type: 'image_url',
@@ -426,15 +543,105 @@ async function callVisionExtract(
         ],
       },
     ],
-    // Intentionally no response_format — max compatibility across free providers.
     max_tokens: 4000,
     temperature: 0.1,
-  });
+  };
 
+  if (paidVisionModel(model)) {
+    createArgs.response_format = { type: 'json_object' };
+  }
+
+  let response;
+  try {
+    response = await client.chat.completions.create(createArgs);
+  } catch (err) {
+    if (createArgs.response_format) {
+      delete createArgs.response_format;
+      response = await client.chat.completions.create(createArgs);
+    } else {
+      throw err;
+    }
+  }
   const raw = response.choices[0]?.message?.content || '{}';
-  const parsed = parseJsonLoose(raw);
+
+  let parsed: { notes?: LooseNote[] };
+  try {
+    parsed = parseJsonLoose(raw);
+  } catch {
+    const repaired = await repairJson(client, model, raw);
+    parsed = parseJsonLoose(repaired);
+  }
+
   const rawNotes = Array.isArray(parsed?.notes) ? parsed.notes : [];
-  return mapRawNotes(rawNotes);
+  return mapRawNotes(rawNotes, today.dateKey);
+}
+
+export function proposedToPartialNote(
+  p: ProposedNote
+): Omit<Note, 'id' | 'createdAt' | 'position' | 'rotation'> {
+  const lower = `${p.title} ${p.content}`.toLowerCase();
+  let category: EventCategory =
+    p.category && ['assignment', 'exam', 'class', 'general'].includes(p.category)
+      ? p.category
+      : 'general';
+
+  if (!p.category) {
+    if (p.type === 'assignment') category = 'assignment';
+    else if (
+      lower.includes('exam') ||
+      lower.includes('test') ||
+      lower.includes('midterm') ||
+      lower.includes('final') ||
+      lower.includes('quiz')
+    ) {
+      category = 'exam';
+    } else if (
+      lower.includes('class') ||
+      lower.includes('lecture') ||
+      lower.includes('lab') ||
+      lower.includes('discussion') ||
+      lower.includes('recitation')
+    ) {
+      category = 'class';
+    } else if (p.type === 'permanent') {
+      category = 'exam';
+    }
+  }
+
+  let mappedType: NoteType = p.type && ['general', 'assignment', 'permanent'].includes(p.type)
+    ? p.type
+    : 'general';
+  if (category === 'exam' || category === 'class') mappedType = 'permanent';
+  else if (category === 'assignment') mappedType = 'assignment';
+
+  const rec = normalizeRecurrence(p.recurrence);
+  let dueDate = p.dueDate || undefined;
+  let recurrence = rec;
+  if (rec) {
+    const seeded = seedRecurrence(rec, dueDate || toLocalDateKey(new Date()));
+    if (seeded) {
+      dueDate = seeded.dueDate;
+      recurrence = seeded.recurrence;
+    }
+  }
+
+  const startTime = normalizeTime(p.startTime) || rec?.dueTime;
+
+  return {
+    type: mappedType,
+    title: p.title,
+    content: p.content,
+    dueDate,
+    tags: p.tags,
+    completed: false,
+    source: 'ai',
+    category,
+    startTime,
+    endTime: normalizeTime(p.endTime),
+    location: p.location,
+    instructor: p.instructor,
+    recurrence,
+  };
 }
 
 // ======================
@@ -446,6 +653,7 @@ export async function extractNotesFromImage(
   model: string
 ): Promise<ExtractResult> {
   const primary = normalizeAiModel(model);
+  const today = todayContext();
 
   try {
     const client = getClient(apiKey);
@@ -453,11 +661,11 @@ export async function extractNotesFromImage(
     let usedFallbackModel: string | undefined;
 
     try {
-      notes = await callVisionExtract(client, primary, base64Image);
+      notes = await callVisionExtract(client, primary, base64Image, today);
     } catch (primaryErr) {
       if (!shouldFallbackToDefault(primaryErr, primary)) throw primaryErr;
-      console.warn('Vision primary model failed; retrying with default free VL:', primaryErr);
-      notes = await callVisionExtract(client, DEFAULT_AI_MODEL, base64Image);
+      console.warn('Vision primary model failed; retrying with default VL:', primaryErr);
+      notes = await callVisionExtract(client, DEFAULT_AI_MODEL, base64Image, today);
       usedFallbackModel = DEFAULT_AI_MODEL;
     }
 
