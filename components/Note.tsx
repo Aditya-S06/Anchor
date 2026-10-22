@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useRef, memo } from 'react';
-import { motion } from 'framer-motion';
+import { motion, type DragHandler } from 'framer-motion';
 import { Check, Edit2, Trash2, Pin } from 'lucide-react';
 import { Note as NoteType } from '../lib/types';
 import { formatDueDate, getDueUrgency, getUrgencyClasses, getNoteTypeColor, getTypeBadgeClasses, clampPosition } from '../lib/utils';
@@ -39,7 +39,7 @@ function Note({
     }
   }, [note.position.x, note.position.y]);
 
-  const handleDragEnd = (_event: any, info: any) => {
+  const handleDragEnd: DragHandler = (_event, info) => {
     isDraggingRef.current = false;
 
     const newX = localPos.x + info.offset.x;

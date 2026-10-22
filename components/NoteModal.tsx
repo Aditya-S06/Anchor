@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { Note, NoteType, Recurrence } from '../lib/types';
 import { toLocalDateKey } from '../lib/utils';
@@ -29,34 +29,13 @@ const TYPE_OPTIONS: { value: NoteType; label: string }[] = [
 ];
 
 export default function NoteModal({ isOpen, note, onClose, onSave, onDelete }: NoteModalProps) {
-  const [type, setType] = useState<NoteType>('general');
-  const [title, setTitle] = useState('');
-  const [content, setContent] = useState('');
-  const [dueDate, setDueDate] = useState('');
-  const [hasDue, setHasDue] = useState(false);
-  const [tagsInput, setTagsInput] = useState('');
-  const [recurrence, setRecurrence] = useState<Recurrence | undefined>(undefined);
-
-  useEffect(() => {
-    if (note) {
-      setType(note.type);
-      setTitle(note.title);
-      setContent(note.content);
-      const parsed = note.dueDate ? note.dueDate.slice(0, 10) : '';
-      setDueDate(parsed);
-      setHasDue(!!note.dueDate);
-      setTagsInput(note.tags?.join(', ') || '');
-      setRecurrence(note.recurrence);
-    } else {
-      setType('general');
-      setTitle('');
-      setContent('');
-      setDueDate('');
-      setHasDue(false);
-      setTagsInput('');
-      setRecurrence(undefined);
-    }
-  }, [note, isOpen]);
+  const [type, setType] = useState<NoteType>(note?.type ?? 'general');
+  const [title, setTitle] = useState(note?.title ?? '');
+  const [content, setContent] = useState(note?.content ?? '');
+  const [dueDate, setDueDate] = useState(note?.dueDate ? note.dueDate.slice(0, 10) : '');
+  const [hasDue, setHasDue] = useState(!!note?.dueDate);
+  const [tagsInput, setTagsInput] = useState(note?.tags?.join(', ') ?? '');
+  const [recurrence, setRecurrence] = useState<Recurrence | undefined>(note?.recurrence);
 
   if (!isOpen) return null;
 

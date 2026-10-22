@@ -26,6 +26,17 @@ import EventModal from '../components/EventModal';
 import ChatPanel from '../components/ChatPanel';
 import { toast } from 'sonner';
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>;
+}
+
+declare global {
+  interface WindowEventMap {
+    beforeinstallprompt: BeforeInstallPromptEvent;
+  }
+}
+
 export default function PinBoard() {
   const {
     notes,
@@ -426,14 +437,13 @@ export default function PinBoard() {
 
   const filteredForBoard = ui.viewMode === 'board' ? filteredNotes : [];
 
-  // Install prompt (PWA)
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [showInstall, setShowInstall] = useState(false);
 
   useEffect(() => {
-    const handler = (e: any) => {
-      e.preventDefault();
-      setDeferredPrompt(e);
+    const handler = (event: BeforeInstallPromptEvent) => {
+      event.preventDefault();
+      setDeferredPrompt(event);
       setShowInstall(true);
     };
     window.addEventListener('beforeinstallprompt', handler);
@@ -635,8 +645,8 @@ export default function PinBoard() {
         )}
       </div>
 
-      {/* Modals */}
       <NoteModal
+        key={noteModalOpen ? (editingNote?.id ?? 'new-note') : 'note-closed'}
         isOpen={noteModalOpen}
         note={editingNote}
         onClose={() => {
@@ -665,8 +675,13 @@ export default function PinBoard() {
         onClearAll={handleClear}
       />
 
-      {/* Calendar / Day Event Modal */}
       <EventModal
+        key={
+          eventModalOpen
+            ? (editingEvent?.id ??
+              `new:${eventInitialDate ?? ''}:${eventInitialStart ?? ''}:${eventInitialEnd ?? ''}`)
+            : 'event-closed'
+        }
         isOpen={eventModalOpen}
         initialDate={eventInitialDate}
         initialStartTime={eventInitialStart}

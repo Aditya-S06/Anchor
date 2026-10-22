@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { X, Trash2 } from 'lucide-react';
 import { Note, EventCategory, Recurrence } from '../lib/types';
 import { EVENT_CATEGORIES } from '../lib/types';
@@ -31,6 +31,13 @@ interface EventModalProps {
 
 const DEFAULT_CATEGORY: EventCategory = 'assignment';
 
+function inferCategoryFromNote(n: Note): EventCategory {
+  if (n.category) return n.category;
+  if (n.type === 'assignment') return 'assignment';
+  if (n.type === 'permanent') return 'exam';
+  return 'general';
+}
+
 export default function EventModal({
   isOpen,
   initialDate,
@@ -41,50 +48,19 @@ export default function EventModal({
   onSave,
   onDelete,
 }: EventModalProps) {
-  const [title, setTitle] = useState('');
-  const [category, setCategory] = useState<EventCategory>(DEFAULT_CATEGORY);
-  const [dueDate, setDueDate] = useState('');
-  const [startTime, setStartTime] = useState('');
-  const [endTime, setEndTime] = useState('');
-  const [location, setLocation] = useState('');
-  const [instructor, setInstructor] = useState('');
-  const [content, setContent] = useState('');
-  const [recurrence, setRecurrence] = useState<Recurrence | undefined>(undefined);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    if (note) {
-      // Editing existing
-      setTitle(note.title);
-      setCategory(note.category || inferCategoryFromNote(note));
-      setDueDate(note.dueDate ? note.dueDate.slice(0, 10) : '');
-      setStartTime(note.startTime || '');
-      setEndTime(note.endTime || '');
-      setLocation(note.location || '');
-      setInstructor(note.instructor || '');
-      setContent(note.content || '');
-      setRecurrence(note.recurrence);
-    } else {
-      // New event (Day drag may prefill times)
-      setTitle('');
-      setCategory(DEFAULT_CATEGORY);
-      setDueDate(initialDate || toLocalDateKey(new Date()));
-      setStartTime(initialStartTime || '');
-      setEndTime(initialEndTime || '');
-      setLocation('');
-      setInstructor('');
-      setContent('');
-      setRecurrence(undefined);
-    }
-  }, [isOpen, note, initialDate, initialStartTime, initialEndTime]);
-
-  function inferCategoryFromNote(n: Note): EventCategory {
-    if (n.category) return n.category;
-    if (n.type === 'assignment') return 'assignment';
-    if (n.type === 'permanent') return 'exam';
-    return 'general';
-  }
+  const [title, setTitle] = useState(note?.title ?? '');
+  const [category, setCategory] = useState<EventCategory>(
+    note ? note.category || inferCategoryFromNote(note) : DEFAULT_CATEGORY,
+  );
+  const [dueDate, setDueDate] = useState(
+    note ? (note.dueDate ? note.dueDate.slice(0, 10) : '') : initialDate || toLocalDateKey(new Date()),
+  );
+  const [startTime, setStartTime] = useState(note ? note.startTime || '' : initialStartTime || '');
+  const [endTime, setEndTime] = useState(note ? note.endTime || '' : initialEndTime || '');
+  const [location, setLocation] = useState(note?.location || '');
+  const [instructor, setInstructor] = useState(note?.instructor || '');
+  const [content, setContent] = useState(note?.content || '');
+  const [recurrence, setRecurrence] = useState<Recurrence | undefined>(note?.recurrence);
 
   if (!isOpen) return null;
 
